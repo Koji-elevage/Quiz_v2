@@ -16,6 +16,10 @@ const port = process.env.PORT || 3000;
 const ADMIN_TOKEN = String(process.env.ADMIN_TOKEN || '').trim();
 
 const dbPath = path.join(__dirname, 'db', 'quiz.sqlite');
+const dbDir = path.dirname(dbPath);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
 const db = new Database(dbPath);
 
 // Ensure image generation directory exists
