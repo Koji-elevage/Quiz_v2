@@ -43,6 +43,7 @@ npm run dev
 - 学習者画面: `http://localhost:3000/`
 - 管理画面: `http://localhost:3000/admin`
   - 初回アクセス時に管理者トークン入力が必要です
+  - 共有リンク方式: `http://localhost:3000/admin?token=<ADMIN_TOKEN>` でも初回設定できます（入力を省略）
 
 ## セキュリティメモ
 

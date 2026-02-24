@@ -44,6 +44,22 @@ function getAdminToken() {
     return String(localStorage.getItem(ADMIN_TOKEN_KEY) || '').trim();
 }
 
+function applyTokenFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+    const hashParams = new URLSearchParams(hash);
+    const tokenFromUrl = String(
+        params.get('token')
+        || params.get('adminToken')
+        || hashParams.get('token')
+        || hashParams.get('adminToken')
+        || ''
+    ).trim();
+    if (!tokenFromUrl) return;
+    localStorage.setItem(ADMIN_TOKEN_KEY, tokenFromUrl);
+    window.history.replaceState({}, document.title, '/admin');
+}
+
 function ensureAdminToken(force = false) {
     let token = getAdminToken();
     if (!token || force) {
@@ -943,6 +959,7 @@ saveQuizBtn.addEventListener('click', saveQuiz);
 cancelEditBtn.addEventListener('click', cancelEdit);
 questionBody.addEventListener('paste', handleSheetPaste);
 
+applyTokenFromUrl();
 resetQuestionRows(5);
 loadQuizList();
 
