@@ -1197,3 +1197,112 @@ body {
     color: var(--primary-blue);
     font-weight: 700;
 }
+
+/* Learner Landing */
+.sample-lp-page {
+    min-height: 100vh;
+    margin: 0;
+    font-family: 'Noto Sans JP', sans-serif;
+    background:
+        radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.26), transparent 42%),
+        radial-gradient(circle at 80% 80%, rgba(255, 255, 255, 0.18), transparent 45%),
+        linear-gradient(140deg, #2f4ec9 0%, #6a43b9 100%);
+}
+
+.lpv2-shell {
+    width: min(760px, 92vw);
+    margin: 0 auto;
+    padding: 28px 0;
+}
+
+.lpv2-card {
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    border-radius: 20px;
+    padding: 28px;
+    box-shadow: 0 20px 60px rgba(20, 26, 58, 0.28);
+}
+
+.lpv2-title {
+    margin: 0 0 8px;
+    font-size: clamp(30px, 5.4vw, 46px);
+    line-height: 1.1;
+    color: #111827;
+}
+
+.lpv2-subtitle {
+    margin: 0 0 20px;
+    font-size: clamp(16px, 2.4vw, 20px);
+    color: #374151;
+}
+
+.lpv2-guide {
+    background: #f8fafc;
+    border: 1px solid #dbe4ff;
+    border-radius: 14px;
+    padding: 18px;
+}
+
+.lpv2-guide-title {
+    margin: 0 0 10px;
+    font-weight: 700;
+    color: #1f2937;
+}
+
+.lpv2-steps {
+    margin: 0 0 10px 20px;
+    color: #374151;
+    line-height: 1.7;
+}
+
+.lpv2-label {
+    display: block;
+    margin-bottom: 6px;
+    color: #111827;
+    font-weight: 600;
+}
+
+.lpv2-input {
+    width: 100%;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 16px;
+    margin-bottom: 10px;
+}
+
+.lpv2-help {
+    margin: 0 0 12px;
+    color: #475569;
+}
+
+.lpv2-help.error {
+    color: #b91c1c;
+}
+
+.lpv2-start-btn,
+.lpv2-admin-link {
+    display: inline-block;
+    border-radius: 10px;
+    padding: 10px 16px;
+    font-weight: 700;
+    text-decoration: none;
+    border: none;
+    cursor: pointer;
+    font-size: 15px;
+}
+
+.lpv2-start-btn {
+    background: #1d4ed8;
+    color: #fff;
+}
+
+.lpv2-admin-link {
+    background: #fff;
+    color: #1f2937;
+    border: 1px solid #cbd5e1;
+}
+
+.hidden {
+    display: none !important;
+}
