@@ -8,6 +8,7 @@ const editStatus = document.getElementById('editStatus');
 const quizListBody = document.getElementById('quizListBody');
 const titleInput = document.getElementById('titleInput');
 const ADMIN_TOKEN_KEY = 'adminToken';
+const ADMIN_TOKEN_FALLBACK = 'nihongo-teacher-2026';
 const PASTE_COLUMNS = [
     'prompt',
     'sentence',
@@ -62,6 +63,10 @@ function applyTokenFromUrl() {
 
 function ensureAdminToken(force = false) {
     let token = getAdminToken();
+    if (!token && !force && ADMIN_TOKEN_FALLBACK) {
+        token = ADMIN_TOKEN_FALLBACK;
+        localStorage.setItem(ADMIN_TOKEN_KEY, token);
+    }
     if (!token || force) {
         token = String(window.prompt('管理者トークンを入力してください') || '').trim();
         if (!token) {
