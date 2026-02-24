@@ -587,7 +587,7 @@ Write the image generation prompt in English now:
           model: 'wanx2.0-t2i-turbo',
           input: { prompt: optimizedPrompt },
           parameters: {
-            size: '1024*768',
+            size: '1152*864',
             n: 1
           }
         })
