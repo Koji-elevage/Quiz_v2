@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="/admin.css" />
+</head>
+
+<body class="admin-page">
+    <main class="container stack">
+        <section class="headline"
+            style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 10px;">
+            <div>
+                <h1>日本語クイズ v2 管理者</h1>
+                <p>V2用の問題を作成し、授業用のURLとQRコードを配布します。</p>
+            </div>
+            <div
+                style="display: flex; align-items: center; gap: 8px; background: #fff; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                <span style="font-size: 13px; font-weight: bold; color: #475569;">🤖 AIモデル:</span>
+                <select id="aiProvider"
+                    style="border: none; background: transparent; font-size: 14px; font-weight: 500; color: #1e293b; cursor: pointer; outline: none;">
+                    <option value="gemini" selected>Google Gemini (無料)</option>
+                    <option value="qwen">Alibaba Qwen (低価格)</option>
+                </select>
+            </div>
+        </section>
+
+        <section class="panel sheet-ui">
+            <div class="sheet-row">
+                <div class="sheet-label">タイトル</div>
+                <div class="sheet-value"><input id="titleInput" type="text" placeholder="例: オノマトペ v2" /></div>
+            </div>
+            <div class="sheet-row">
+                <div class="sheet-label">問題入力（5問以上）</div>
+                <div class="sheet-value">
+                    <div class="sheet-grid-wrap">
+                        <table class="sheet-grid admin-sheet-grid" id="questionTable">
+                            <thead>
+                                <tr>
+                                    <th style="min-width: 40px; text-align: center;">#</th>
+                                    <th style="min-width: 120px;">
+                                        <div class="th-resizer">設問</div>
+                                    </th>
+                                    <th style="min-width: 160px;">
+                                        <div class="th-resizer">穴埋め文</div>
+                                    </th>
+
+                                    <th style="min-width: 100px;">
+                                        <div class="th-resizer">選択肢1</div>
+                                    </th>
+                                    <th style="min-width: 100px;">
+                                        <div class="th-resizer">選択肢2</div>
+                                    </th>
+                                    <th style="min-width: 100px;">
+                                        <div class="th-resizer">選択肢3</div>
+                                    </th>
+                                    <th style="min-width: 60px;">
+                                        <div class="th-resizer">正解</div>
+                                    </th>
+                                    <th style="min-width: 60px;">
+                                        <div class="th-resizer">AI生成</div>
+                                    </th>
+                                    <th style="min-width: 140px;">
+                                        <div class="th-resizer">解説</div>
+                                    </th>
+                                    <th style="min-width: 120px;">
+                                        <div class="th-resizer">不正解1場面</div>
+                                    </th>
+                                    <th style="min-width: 140px;">
+                                        <div class="th-resizer">不正解1例文</div>
+                                    </th>
+                                    <th style="min-width: 120px;">
+                                        <div class="th-resizer">不正解2場面</div>
+                                    </th>
+                                    <th style="min-width: 140px;">
+                                        <div class="th-resizer">不正解2例文</div>
+                                    </th>
+                                    <th style="min-width: 120px;">
+                                        <div class="th-resizer">画像</div>
+                                    </th>
+                                    <th style="min-width: 60px; text-align: center;">削除</th>
+                                </tr>
+                            </thead>
+                            <tbody id="questionBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="hints-container"
+                        style="margin-top: 8px; font-size: 13px; color: #475569; background: #f8fafc; padding: 10px; border: 1px solid #e2e8f0; border-radius: 4px;">
+                        <p style="margin-bottom: 6px;"><strong>💡 AI自動生成の使い方:</strong> 「正解」となる選択肢（例:
+                            選択肢1）を入力してから表の<strong>「✨ AI自動作成」</strong>ボタンを押すと、例文や解説、別の選択肢をAIが自動で考えて埋めてくれます。</p>
+                        <p><strong>📋 エクセルからの貼り付け:</strong>
+                            スプレッドシートから複数セルをコピーして、そのまま貼り付けできます。スマホでは表を左右にスクロールすると全項目表示されます。</p>
+                    </div>
+                    <div class="actions admin-actions" style="margin-top: 10px">
+                        <button type="button" class="secondary" id="addRowBtn">行を追加</button>
+                        <button type="button" class="secondary" id="loadSampleBtn">サンプル問題を読み込む</button>
+                        <button type="button" class="secondary" id="cancelEditBtn" disabled>編集中の内容を破棄して新規作成</button>
+                        <button type="button" id="saveQuizBtn">保存してQRを生成</button>
+                    </div>
+                    <p id="editStatus" class="notice hidden" style="margin-top: 10px"></p>
+                    <p id="formMessage" class="notice" style="margin-top: 10px">5問以上入力して保存してください。</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel sheet-ui">
+            <div class="sheet-row">
+                <div class="sheet-label">保存結果</div>
+                <div class="sheet-value">
+                    <div id="saveResult" class="qr-box hidden">
+                        <p><strong>クイズURL:</strong> <a id="quizUrlLink" href="#" target="_blank" rel="noreferrer"></a>
+                        </p>
+                        <img id="qrImage" alt="クイズQRコード" />
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel sheet-ui">
+            <div class="sheet-row">
+                <div class="sheet-label">作成済みクイズ</div>
+                <div class="sheet-value">
+                    <div class="admin-list-wrap">
+                        <table class="list-table">
+                            <thead>
+                                <tr>
+                                    <th>タイトル</th>
+                                    <th>問題数</th>
+                                    <th>作成日時</th>
+                                    <th style="width: 180px">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="quizListBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+        <!-- Custom AI Prompt Modal -->
+        <div id="prompt-modal-overlay" class="modal-overlay">
+            <div class="prompt-modal-content">
+                <h3>追加の要望（オプション）</h3>
+                <p>現在の画像を元にAIで再生成します。<br>要望があれば入力してください（例: 猫を白猫にして）。</p>
+                <textarea id="prompt-modal-input" rows="2" placeholder="空欄のままOKを押すとランダムに再生成します"></textarea>
+                <div class="prompt-modal-actions">
+                    <button type="button" id="prompt-modal-cancel" class="secondary">キャンセル</button>
+                    <button type="button" id="prompt-modal-ok">OK</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Image Preview Modal -->
+        <div id="image-modal-overlay" class="modal-overlay">
+            <div class="image-modal-content">
+                <span class="modal-close" id="close-image-modal" title="閉じる">&times;</span>
+                <img id="modal-full-image" src="" alt="プレビュー画像">
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Log Modal Overlay -->
+    <div id="log-modal-overlay" class="modal-overlay">
+        <div class="prompt-modal-content" style="max-width: 600px;">
+            <h3 id="logModalTitle">学習者アクセスログ</h3>
+            <p style="margin-bottom: 2px;">このクイズのプレイ履歴です。</p>
+            <div
+                style="max-height: 400px; overflow-y: auto; margin-top: 10px; border: 1px solid var(--line); border-radius: 6px;">
+                <table class="quiz-table" style="margin-bottom: 0; box-shadow: none;">
+                    <thead style="position: sticky; top: 0; z-index: 10;">
+                        <tr>
+                            <th>学習者名</th>
+                            <th class="td-center">プレイ回数</th>
+                            <th class="td-center">最終スコア</th>
+                            <th>最終プレイ日時</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logTableBody">
+                        <tr>
+                            <td colspan="4" class="td-center">データがありません</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div style="display: flex; justify-content: flex-end; margin-top: 12px;">
+                <button type="button" class="secondary" id="closeLogModalBtn">閉じる</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/admin.js"></script>
+</body>
+
+</html>

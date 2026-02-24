@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>日本語学習クイズ v2</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+
+<body>
+    <div class="phone-frame">
+        <div class="phone-notch"></div>
+        <div class="screen-indicator" id="screenIndicator">1/4</div>
+
+        <!-- Screen 1: Home -->
+        <div class="screen active" id="homeScreen">
+            <div class="header">
+                <div class="header-title">🎌 日本語学習クイズ</div>
+                <div class="lang-switch">🌐 EN</div>
+            </div>
+
+            <div class="content">
+                <div class="mission-card">
+                    <div class="mission-title">🎯 今日のミッション</div>
+                    <div class="mission-text" id="missionText">全問正解しよう！</div>
+                    <div class="progress-bar-sm">
+                        <div class="progress-fill-sm" id="missionProgress" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div class="hero-section">
+                    <div class="hero-emoji">🎨✨📝📚</div>
+                    <div class="hero-title" id="heroTitle">穴埋め問題でマスター！</div>
+                    <div class="hero-subtitle">例文で使い方を自然に覚えよう</div>
+                    <div class="name-input-group">
+                        <label for="learnerName">あなたのお名前は？</label>
+                        <input type="text" id="learnerName" placeholder="例: こうじ" maxlength="24">
+                        <p id="nameAlert" class="error-msg" style="display: none;">名前を入力してください</p>
+                    </div>
+                    <button class="primary-btn" onclick="startQuizWithValidation()">▶️ クイズを始める</button>
+                </div>
+            </div>
+
+            <div class="footer-stats">
+            </div>
+
+            <div class="tab-bar">
+                <div class="tab-item active">
+                    <div class="tab-icon">🏠</div>
+                    <div class="tab-label">ホーム</div>
+                </div>
+                <div class="tab-item">
+                    <div class="tab-icon">🗂️</div>
+                    <div class="tab-label">図鑑</div>
+                </div>
+                <div class="tab-item">
+                    <div class="tab-icon">📈</div>
+                    <div class="tab-label">進捗</div>
+                </div>
+                <div class="tab-item">
+                    <div class="tab-icon">⚙️</div>
+                    <div class="tab-label">設定</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Screen 2: Quiz -->
+        <div class="screen" id="quizScreen">
+            <div class="quiz-header">
+                <button class="back-btn" onclick="goToScreen('homeScreen')">←</button>
+                <div class="quiz-progress" id="quizProgress">Q1/10</div>
+                <div class="quiz-timer">⏱️ <span id="timer">00:30</span></div>
+            </div>
+
+            <div class="progress-header">
+                <div class="progress-bar-container">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="quizProgressBar" style="width: 10%"></div>
+                    </div>
+                    <div class="progress-text" id="quizProgressText">1/10</div>
+                </div>
+            </div>
+
+            <div class="question-text" id="questionText">【この状況に合う言葉は？】</div>
+
+            <div class="question-image-container">
+                <img src="" alt="Question image" class="question-image" id="questionImage">
+            </div>
+
+            <!-- Fill-in-the-blank Sentence -->
+            <div class="sentence-container">
+                <div class="sentence-card">
+                    <div class="sentence-label">📝 例文穴埋め</div>
+                    <div class="sentence-text" id="sentenceText">
+                        <!-- Dynamically generated -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="options-container" id="optionsContainer">
+                <!-- Options will be generated dynamically -->
+            </div>
+
+
+        </div>
+
+        <!-- Screen 3: Feedback -->
+        <div class="screen" id="feedbackScreen">
+            <div class="quiz-header">
+                <button class="back-btn" onclick="goToScreen('quizScreen')">←</button>
+                <div class="quiz-progress" id="feedbackProgress">Q1/10</div>
+                <div class="quiz-timer"></div>
+            </div>
+
+            <div class="feedback-content">
+                <div class="feedback-header">
+                    <div class="feedback-emoji" id="feedbackEmoji">🎉</div>
+                    <div class="feedback-title correct" id="feedbackTitle">正解！</div>
+                    <div class="feedback-subtitle" id="feedbackSubtitle">素晴らしい！この調子で続けましょう</div>
+                </div>
+
+                <div class="feedback-card">
+                    <div class="feedback-word" id="feedbackWord">✨ しとしと</div>
+                </div>
+
+                <!-- Complete Sentence -->
+                <div class="complete-sentence">
+                    <div class="complete-sentence-label">✅ 完成した例文</div>
+                    <div class="complete-sentence-text" id="completeSentence">
+                        <!-- Dynamically generated -->
+                    </div>
+                </div>
+
+                <!-- Tabs for Content -->
+                <div class="tabs-container">
+                    <button class="tab-btn active" onclick="switchTab('why')">✅ 正解理由</button>
+                    <button class="tab-btn" onclick="switchTab('other')">🔍 他の選択肢</button>
+                </div>
+
+                <!-- Tab 1: Why Correct -->
+                <div class="tab-content active" id="tab-why">
+                    <div class="why-correct-section">
+                        <div class="section-title">✅ なぜこれが正解？</div>
+                        <div class="explanation-text" id="whyExplanation">
+                            画像には「小雨が静かに降り続けている様子」が描かれています。
+                        </div>
+
+                    </div>
+
+
+                </div>
+
+                <!-- Tab 2: Other Options -->
+                <div class="tab-content" id="tab-other">
+                    <div class="feedback-card">
+                        <div class="section-title" style="color: var(--text-secondary); margin-bottom: 10px;">🔍
+                            他の選択肢の使い方</div>
+                        <div id="otherOptionsContent">
+                            <!-- Dynamically generated -->
+                        </div>
+                    </div>
+                </div>
+
+
+            </div>
+
+            <div class="next-btn-container">
+                <button class="primary-btn" id="nextBtn" onclick="nextQuestion()">
+                    ▶️ 次の問題へ
+                </button>
+            </div>
+        </div>
+
+        <!-- Screen 4: Results -->
+        <div class="screen" id="resultsScreen">
+            <div class="quiz-header">
+                <button class="back-btn" onclick="goToScreen('homeScreen')">←</button>
+                <div class="quiz-progress">結果</div>
+                <div class="quiz-timer"></div>
+            </div>
+
+            <div class="results-content">
+                <div class="results-emoji" id="resultsEmoji">🏆</div>
+                <div class="results-title" id="resultsTitle">お疲れ様でした！</div>
+                <div class="results-score" id="resultsScore">8/10</div>
+                <div class="results-subtitle" id="resultsSubtitle">正解率 80% - 素晴らしい！</div>
+
+                <div class="results-stats">
+                    <div class="stat-card">
+                        <div class="stat-value" id="statCorrect">8</div>
+                        <div class="stat-label">正解数</div>
+                    </div>
+                </div>
+
+                <div class="review-list">
+                    <div class="review-title">🔁 復習おすすめ単語</div>
+                    <div id="reviewListContent">
+                        <div class="review-item">
+                            <span class="review-word">じゃあじゃあ</span>
+                            <span class="review-status">❌ 不正解</span>
+                        </div>
+                        <div class="review-item">
+                            <span class="review-word">にこにこ</span>
+                            <span class="review-status">❌ 不正解</span>
+                        </div>
+                    </div>
+                </div>
+
+                <button class="primary-btn" onclick="startQuiz()" style="margin-bottom: 10px;">
+                    🔄 もう一度挑戦
+                </button>
+                <button class="mission-cta" onclick="goToScreen('homeScreen')" style="width: 100%;">
+                    🏠 ホームに戻る
+                </button>
+            </div>
+
+            <div class="tab-bar">
+                <div class="tab-item" onclick="goToScreen('homeScreen')">
+                    <div class="tab-icon">🏠</div>
+                    <div class="tab-label">ホーム</div>
+                </div>
+                <div class="tab-item">
+                    <div class="tab-icon">🗂️</div>
+                    <div class="tab-label">図鑑</div>
+                </div>
+                <div class="tab-item active">
+                    <div class="tab-icon">📈</div>
+                    <div class="tab-label">進捗</div>
+                </div>
+                <div class="tab-item">
+                    <div class="tab-icon">⚙️</div>
+                    <div class="tab-label">設定</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Navigation Dots -->
+        <div class="nav-dots">
+            <div class="nav-dot active" onclick="goToScreen('homeScreen')"></div>
+            <div class="nav-dot" onclick="goToScreen('quizScreen')"></div>
+            <div class="nav-dot" onclick="goToScreen('feedbackScreen')"></div>
+            <div class="nav-dot" onclick="goToScreen('resultsScreen')"></div>
+        </div>
+    </div>
+    <script src="/quiz.js"></script>
+</body>
+
+</html>

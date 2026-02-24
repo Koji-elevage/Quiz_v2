@@ -1,0 +1,1950 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>オノマトペクイズ - 穴埋め問題版</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary-blue: #4A90E2;
+            --primary-blue-dark: #357ABD;
+            --success: #2ECC71;
+            --error: #E74C3C;
+            --warning: #F39C12;
+            --bg-primary: #FAFAFA;
+            --bg-card: #FFFFFF;
+            --text-primary: #2C3E50;
+            --text-secondary: #7F8C8D;
+            --border: #ECF0F1;
+            --romanization: #9B59B6;
+            --hint-gem: #F1C40F;
+            --blank-bg: #E8F4FD;
+            --blank-border: #4A90E2;
+        }
+
+        body {
+            font-family: 'Noto Sans JP', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .phone-frame {
+            width: 375px;
+            height: 812px;
+            background: var(--bg-primary);
+            border-radius: 40px;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+            position: relative;
+            border: 12px solid #1a1a2e;
+        }
+
+        .phone-notch {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 150px;
+            height: 30px;
+            background: #1a1a2e;
+            border-radius: 0 0 20px 20px;
+            z-index: 100;
+        }
+
+        .screen {
+            width: 100%;
+            height: 100%;
+            display: none;
+            flex-direction: column;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .screen.active {
+            display: flex;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Header */
+        .header {
+            padding: 50px 16px 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+
+        .header-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .lang-switch {
+            background: var(--border);
+            padding: 4px 10px;
+            border-radius: 16px;
+            font-size: 11px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .lang-switch:hover {
+            background: var(--primary-blue);
+            color: white;
+        }
+
+        .back-btn {
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            color: var(--text-primary);
+            padding: 4px;
+        }
+
+        /* Progress Bar */
+        .progress-header {
+            padding: 8px 16px;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+
+        .progress-bar-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .progress-bar {
+            flex: 1;
+            height: 6px;
+            background: var(--border);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary-blue), #6dd5fa);
+            border-radius: 3px;
+            transition: width 0.3s ease;
+        }
+
+        .progress-text {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-primary);
+            min-width: 50px;
+        }
+
+        /* Content */
+        .content {
+            flex: 1;
+            padding: 12px;
+            overflow-y: auto;
+        }
+
+        /* Quiz Header */
+        .quiz-header {
+            padding: 50px 16px 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+
+        .quiz-progress {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .quiz-timer {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--warning);
+        }
+
+        /* Question */
+        .question-text {
+            text-align: center;
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text-primary);
+            padding: 12px 8px 8px;
+            flex-shrink: 0;
+        }
+
+        .question-image-container {
+            padding: 0 12px 8px;
+            flex-shrink: 0;
+        }
+
+        .question-image {
+            width: 100%;
+            height: 130px;
+            object-fit: cover;
+            border-radius: 12px;
+        }
+
+        /* Fill-in-the-blank Sentence */
+        .sentence-container {
+            padding: 10px 12px 8px;
+            flex-shrink: 0;
+        }
+
+        .sentence-card {
+            background: linear-gradient(135deg, #E8F4FD 0%, #D4E6F1 100%);
+            border: 2px solid var(--primary-blue);
+            border-radius: 12px;
+            padding: 14px;
+        }
+
+        .sentence-label {
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--primary-blue);
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .sentence-text {
+            font-size: 13px;
+            line-height: 1.8;
+            color: var(--text-primary);
+        }
+
+        .blank-space {
+            display: inline-block;
+            min-width: 80px;
+            padding: 2px 8px;
+            background: var(--bg-card);
+            border: 2px dashed var(--blank-border);
+            border-radius: 6px;
+            text-align: center;
+            font-weight: 700;
+            color: var(--primary-blue);
+            cursor: pointer;
+            transition: all 0.2s;
+            margin: 0 4px;
+        }
+
+        .blank-space:hover {
+            background: var(--blank-border);
+            color: white;
+        }
+
+        .blank-space.revealed {
+            background: var(--success);
+            border-color: var(--success);
+            color: white;
+            border-style: solid;
+        }
+
+        .blank-hint {
+            font-size: 9px;
+            color: var(--text-secondary);
+            margin-top: 6px;
+            text-align: center;
+        }
+
+        .reveal-btn {
+            background: var(--primary-blue);
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 16px;
+            font-size: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 8px;
+            width: 100%;
+            transition: all 0.2s;
+        }
+
+        .reveal-btn:hover {
+            background: var(--primary-blue-dark);
+        }
+
+        .reveal-btn:disabled {
+            background: var(--border);
+            cursor: not-allowed;
+        }
+
+        /* Options - Compact */
+        .options-container {
+            padding: 0 12px 8px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        .option-btn {
+            background: var(--bg-card);
+            border: 2px solid var(--border);
+            padding: 12px 10px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            text-align: center;
+        }
+
+        .option-btn:hover {
+            border-color: var(--primary-blue);
+            background: #E8F4FD;
+        }
+
+        .option-btn.selected {
+            border-color: var(--primary-blue);
+            background: #E8F4FD;
+        }
+
+        .option-btn.correct {
+            border-color: var(--success);
+            background: #E8F8EF;
+            color: #27AE60;
+        }
+
+        .option-btn.incorrect {
+            border-color: var(--error);
+            background: #FDEDEC;
+            color: #C0392B;
+        }
+
+        .option-letter {
+            font-size: 10px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .option-word {
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        .hint-btn {
+            background: none;
+            border: none;
+            padding: 8px 12px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 4px;
+            cursor: pointer;
+            color: var(--warning);
+            font-size: 12px;
+            font-weight: 500;
+            flex-shrink: 0;
+        }
+
+        /* Feedback Screen */
+        .feedback-content {
+            padding: 12px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .feedback-header {
+            text-align: center;
+            margin-bottom: 12px;
+            flex-shrink: 0;
+        }
+
+        .feedback-emoji {
+            font-size: 48px;
+            margin-bottom: 8px;
+            animation: bounce 0.5s ease;
+        }
+
+        @keyframes bounce {
+
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+
+            50% {
+                transform: translateY(-15px);
+            }
+        }
+
+        .feedback-title {
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .feedback-title.correct {
+            color: var(--success);
+        }
+
+        .feedback-title.incorrect {
+            color: var(--error);
+        }
+
+        .feedback-subtitle {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        /* Compact Cards */
+        .feedback-card {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 10px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        }
+
+        .feedback-word {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+            text-align: center;
+        }
+
+        .feedback-roman {
+            color: var(--romanization);
+            font-size: 13px;
+            font-weight: 500;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+
+        /* Complete Sentence Display */
+        .complete-sentence {
+            background: linear-gradient(135deg, #E8F8EF 0%, #D5F5E3 100%);
+            border: 2px solid var(--success);
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 10px;
+        }
+
+        .complete-sentence-label {
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--success);
+            margin-bottom: 6px;
+        }
+
+        .complete-sentence-text {
+            font-size: 13px;
+            line-height: 1.8;
+            color: var(--text-primary);
+        }
+
+        .filled-word {
+            display: inline-block;
+            padding: 2px 8px;
+            background: var(--success);
+            color: white;
+            border-radius: 6px;
+            font-weight: 700;
+            margin: 0 4px;
+        }
+
+        /* Tabs for Content */
+        .tabs-container {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 10px;
+            flex-shrink: 0;
+        }
+
+        .tab-btn {
+            flex: 1;
+            background: var(--bg-card);
+            border: 2px solid var(--border);
+            padding: 8px 6px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .tab-btn.active {
+            background: var(--primary-blue);
+            border-color: var(--primary-blue);
+            color: white;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Why Correct - Compact */
+        .why-correct-section {
+            background: linear-gradient(135deg, #E8F8EF 0%, #D5F5E3 100%);
+            border: 2px solid var(--success);
+            border-radius: 12px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+
+        .section-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--success);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .explanation-text {
+            font-size: 12px;
+            color: var(--text-primary);
+            line-height: 1.6;
+            margin-bottom: 8px;
+        }
+
+        .key-points {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+
+        .key-point {
+            background: white;
+            padding: 6px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+        }
+
+        .key-point-label {
+            font-size: 9px;
+            color: var(--text-secondary);
+            margin-bottom: 2px;
+        }
+
+        .key-point-value {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        /* Other Options - Compact */
+        .option-detail-card {
+            background: var(--bg-primary);
+            border-radius: 10px;
+            padding: 10px;
+            margin-bottom: 8px;
+            border-left: 3px solid var(--error);
+        }
+
+        .option-detail-card:last-child {
+            margin-bottom: 0;
+        }
+
+        .option-detail-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+
+        .option-detail-word {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .option-detail-roman {
+            color: var(--romanization);
+            font-size: 10px;
+        }
+
+        .option-detail-usage {
+            font-size: 11px;
+            color: var(--text-primary);
+            line-height: 1.5;
+            margin-bottom: 4px;
+        }
+
+        .option-detail-example {
+            background: white;
+            padding: 6px 8px;
+            border-radius: 6px;
+            font-size: 10px;
+            color: var(--text-secondary);
+            border-left: 2px solid var(--border);
+        }
+
+        /* Intensity Scale - Compact */
+        .intensity-section {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+
+        .intensity-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .intensity-scale {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 8px 0;
+        }
+
+        .intensity-bar {
+            flex: 1;
+            height: 8px;
+            background: linear-gradient(90deg, #AED6F1, #5DADE2, #2E86C1, #1B4F72);
+            border-radius: 4px;
+            position: relative;
+        }
+
+        .intensity-words {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 6px;
+            padding-top: 8px;
+            border-top: 1px solid var(--border);
+        }
+
+        .intensity-word {
+            text-align: center;
+            flex: 1;
+        }
+
+        .intensity-word-text {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 2px;
+        }
+
+        .intensity-word-desc {
+            font-size: 8px;
+            color: var(--text-secondary);
+        }
+
+        /* Comparison Table - Compact */
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 10px;
+        }
+
+        .comparison-table th,
+        .comparison-table td {
+            padding: 6px 4px;
+            text-align: center;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .comparison-table th {
+            background: var(--bg-primary);
+            font-weight: 700;
+            color: var(--text-secondary);
+            font-size: 9px;
+        }
+
+        .comparison-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* Tip Box - Compact */
+        .tip-box {
+            background: linear-gradient(135deg, #FEF9E7 0%, #FDEBD0 100%);
+            border: 2px solid var(--warning);
+            border-radius: 10px;
+            padding: 10px;
+            margin-top: 10px;
+        }
+
+        .tip-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--warning);
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .tip-text {
+            font-size: 10px;
+            color: var(--text-primary);
+            line-height: 1.5;
+        }
+
+        /* Expand Button */
+        .expand-btn {
+            background: none;
+            border: none;
+            color: var(--primary-blue);
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            padding: 6px;
+            width: 100%;
+            margin-top: 6px;
+        }
+
+        .expand-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+
+        .expand-content.expanded {
+            max-height: 300px;
+        }
+
+        .expand-icon {
+            transition: transform 0.3s ease;
+        }
+
+        .expand-btn.expanded .expand-icon {
+            transform: rotate(180deg);
+        }
+
+        /* Next Button Container */
+        .next-btn-container {
+            padding: 10px 12px;
+            background: var(--bg-card);
+            border-top: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+
+        .primary-btn {
+            background: var(--primary-blue);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 24px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            width: 100%;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .primary-btn:hover {
+            background: var(--primary-blue-dark);
+            transform: scale(1.02);
+        }
+
+        .primary-btn:active {
+            transform: scale(0.98);
+        }
+
+        /* Tab Bar */
+        .tab-bar {
+            display: flex;
+            background: var(--bg-card);
+            border-top: 1px solid var(--border);
+            padding: 8px 0;
+            flex-shrink: 0;
+        }
+
+        .tab-item {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+            padding: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: var(--text-secondary);
+        }
+
+        .tab-item.active {
+            color: var(--primary-blue);
+        }
+
+        .tab-icon {
+            font-size: 20px;
+        }
+
+        .tab-label {
+            font-size: 10px;
+            font-weight: 500;
+        }
+
+        /* Confetti */
+        .confetti {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            background: var(--success);
+            animation: confetti-fall 1.5s ease-out forwards;
+        }
+
+        @keyframes confetti-fall {
+            0% {
+                transform: translateY(-100px) rotate(0deg);
+                opacity: 1;
+            }
+
+            100% {
+                transform: translateY(800px) rotate(720deg);
+                opacity: 0;
+            }
+        }
+
+        /* Screen Indicator */
+        .screen-indicator {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            padding: 3px 10px;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 500;
+            z-index: 50;
+        }
+
+        /* Results Screen */
+        .results-content {
+            padding: 20px 16px;
+            overflow-y: auto;
+            text-align: center;
+        }
+
+        .results-emoji {
+            font-size: 64px;
+            margin-bottom: 16px;
+        }
+
+        .results-title {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .results-score {
+            font-size: 48px;
+            font-weight: 700;
+            color: var(--primary-blue);
+            margin-bottom: 8px;
+        }
+
+        .results-subtitle {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 20px;
+        }
+
+        .results-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--primary-blue);
+            margin-bottom: 4px;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        .review-list {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 20px;
+            text-align: left;
+        }
+
+        .review-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 10px;
+        }
+
+        .review-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 12px;
+        }
+
+        .review-item:last-child {
+            border-bottom: none;
+        }
+
+        .review-word {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .review-status {
+            color: var(--error);
+            font-size: 11px;
+        }
+
+        /* Home Screen */
+        .mission-card {
+            background: var(--bg-card);
+            border-radius: 14px;
+            padding: 14px;
+            margin-bottom: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        }
+
+        .mission-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .mission-text {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .progress-bar-sm {
+            height: 6px;
+            background: var(--border);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+
+        .progress-fill-sm {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary-blue), #6dd5fa);
+            border-radius: 3px;
+        }
+
+        .mission-cta {
+            background: var(--primary-blue);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 16px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .mission-cta:hover {
+            background: var(--primary-blue-dark);
+        }
+
+        .hero-section {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 20px;
+            padding: 20px 16px;
+            text-align: center;
+            margin-bottom: 12px;
+            color: white;
+        }
+
+        .hero-emoji {
+            font-size: 36px;
+            margin-bottom: 10px;
+        }
+
+        .hero-title {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .hero-subtitle {
+            font-size: 12px;
+            opacity: 0.9;
+            margin-bottom: 14px;
+        }
+
+        .footer-stats {
+            padding: 10px 12px;
+            background: var(--bg-card);
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        .stat-value {
+            color: var(--text-primary);
+            font-weight: 700;
+        }
+
+        /* Navigation Dots */
+        .nav-dots {
+            position: absolute;
+            bottom: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 6px;
+            z-index: 50;
+        }
+
+        .nav-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.5);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .nav-dot.active {
+            background: white;
+            width: 18px;
+            border-radius: 3px;
+        }
+
+        /* Scrollbar */
+        .content::-webkit-scrollbar,
+        .feedback-content::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .content::-webkit-scrollbar-thumb,
+        .feedback-content::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 2px;
+        }
+
+        /* Additional Example Sentences */
+        .example-sentences {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 12px;
+            margin-top: 10px;
+        }
+
+        .example-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .example-item {
+            font-size: 11px;
+            color: var(--text-primary);
+            line-height: 1.6;
+            padding: 6px 0;
+            border-bottom: 1px dashed var(--border);
+        }
+
+        .example-item:last-child {
+            border-bottom: none;
+        }
+
+        .example-highlight {
+            color: var(--primary-blue);
+            font-weight: 700;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="phone-frame">
+        <div class="phone-notch"></div>
+        <div class="screen-indicator" id="screenIndicator">1/4</div>
+
+        <!-- Screen 1: Home -->
+        <div class="screen active" id="homeScreen">
+            <div class="header">
+                <div class="header-title">🎌 オノマトペクイズ</div>
+                <div class="lang-switch">🌐 EN</div>
+            </div>
+
+            <div class="content">
+                <div class="mission-card">
+                    <div class="mission-title">🎯 今日のミッション</div>
+                    <div class="mission-text">10 問すべて正解しよう！</div>
+                    <div class="progress-bar-sm">
+                        <div class="progress-fill-sm" id="missionProgress" style="width: 0%"></div>
+                    </div>
+                    <button class="mission-cta" onclick="startQuiz()">▶️ クイズスタート</button>
+                </div>
+
+                <div class="hero-section">
+                    <div class="hero-emoji">🎨✨📝📚</div>
+                    <div class="hero-title">穴埋め問題で<br>オノマトペをマスター！</div>
+                    <div class="hero-subtitle">例文で使い方を自然に覚えよう</div>
+                    <button class="primary-btn" onclick="startQuiz()">▶️ クイズを始める</button>
+                </div>
+            </div>
+
+            <div class="footer-stats">
+                <div class="stat-item">🏆 ベスト：<span class="stat-value" id="homeBestScore">0 点</span></div>
+                <div class="stat-item">💎 <span class="stat-value" id="homeGems">12</span></div>
+            </div>
+
+            <div class="tab-bar">
+                <div class="tab-item active">
+                    <div class="tab-icon">🏠</div>
+                    <div class="tab-label">ホーム</div>
+                </div>
+                <div class="tab-item">
+                    <div class="tab-icon">🗂️</div>
+                    <div class="tab-label">図鑑</div>
+                </div>
+                <div class="tab-item">
+                    <div class="tab-icon">📈</div>
+                    <div class="tab-label">進捗</div>
+                </div>
+                <div class="tab-item">
+                    <div class="tab-icon">⚙️</div>
+                    <div class="tab-label">設定</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Screen 2: Quiz -->
+        <div class="screen" id="quizScreen">
+            <div class="quiz-header">
+                <button class="back-btn" onclick="goToScreen('homeScreen')">←</button>
+                <div class="quiz-progress" id="quizProgress">Q1/10</div>
+                <div class="quiz-timer">⏱️ <span id="timer">00:30</span></div>
+            </div>
+
+            <div class="progress-header">
+                <div class="progress-bar-container">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="quizProgressBar" style="width: 10%"></div>
+                    </div>
+                    <div class="progress-text" id="quizProgressText">1/10</div>
+                </div>
+            </div>
+
+            <div class="question-text" id="questionText">【この状況に合う言葉は？】</div>
+
+            <div class="question-image-container">
+                <img src="" alt="Question image" class="question-image" id="questionImage">
+            </div>
+
+            <!-- Fill-in-the-blank Sentence -->
+            <div class="sentence-container">
+                <div class="sentence-card">
+                    <div class="sentence-label">📝 例文穴埋め</div>
+                    <div class="sentence-text" id="sentenceText">
+                        <!-- Dynamically generated -->
+                    </div>
+                    <div class="blank-hint">💡 空欄をタップして答えを確認</div>
+                    <button class="reveal-btn" id="revealBtn" onclick="revealAnswer()">答えを表示</button>
+                </div>
+            </div>
+
+            <div class="options-container" id="optionsContainer">
+                <!-- Options will be generated dynamically -->
+            </div>
+
+            <button class="hint-btn">💡 ヒント [💎3] →</button>
+        </div>
+
+        <!-- Screen 3: Feedback -->
+        <div class="screen" id="feedbackScreen">
+            <div class="quiz-header">
+                <button class="back-btn" onclick="goToScreen('quizScreen')">←</button>
+                <div class="quiz-progress" id="feedbackProgress">Q1/10</div>
+                <div class="quiz-timer">💎 <span id="feedbackGems">12</span></div>
+            </div>
+
+            <div class="feedback-content">
+                <div class="feedback-header">
+                    <div class="feedback-emoji" id="feedbackEmoji">🎉</div>
+                    <div class="feedback-title correct" id="feedbackTitle">正解！</div>
+                    <div class="feedback-subtitle" id="feedbackSubtitle">素晴らしい！この調子で続けましょう</div>
+                </div>
+
+                <div class="feedback-card">
+                    <div class="feedback-word" id="feedbackWord">✨ しとしと</div>
+                    <div class="feedback-roman" id="feedbackRoman">[shi-to-shi-to]</div>
+                </div>
+
+                <!-- Complete Sentence -->
+                <div class="complete-sentence">
+                    <div class="complete-sentence-label">✅ 完成した例文</div>
+                    <div class="complete-sentence-text" id="completeSentence">
+                        <!-- Dynamically generated -->
+                    </div>
+                </div>
+
+                <!-- Tabs for Content -->
+                <div class="tabs-container">
+                    <button class="tab-btn active" onclick="switchTab('why')">✅ 正解理由</button>
+                    <button class="tab-btn" onclick="switchTab('other')">🔍 他の選択肢</button>
+                    <button class="tab-btn" onclick="switchTab('examples')">📚 例文</button>
+                </div>
+
+                <!-- Tab 1: Why Correct -->
+                <div class="tab-content active" id="tab-why">
+                    <div class="why-correct-section">
+                        <div class="section-title">✅ なぜこれが正解？</div>
+                        <div class="explanation-text" id="whyExplanation">
+                            画像には「小雨が静かに降り続けている様子」が描かれています。
+                        </div>
+                        <div class="key-points" id="whyKeyPoints">
+                            <div class="key-point">
+                                <div class="key-point-label">強さ</div>
+                                <div class="key-point-value">弱〜中</div>
+                            </div>
+                            <div class="key-point">
+                                <div class="key-point-label">音</div>
+                                <div class="key-point-value">静か</div>
+                            </div>
+                            <div class="key-point">
+                                <div class="key-point-label">時間</div>
+                                <div class="key-point-value">長い</div>
+                            </div>
+                            <div class="key-point">
+                                <div class="key-point-label">雰囲気</div>
+                                <div class="key-point-value">穏やか</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="tip-box">
+                        <div class="tip-title">💡 記憶ヒント</div>
+                        <div class="tip-text" id="memoryTip">
+                            「しとしと」=「静 (shizuka)」と音が似ていますね！
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Other Options -->
+                <div class="tab-content" id="tab-other">
+                    <div class="feedback-card">
+                        <div class="section-title" style="color: var(--text-secondary); margin-bottom: 10px;">🔍
+                            他の選択肢の使い方</div>
+                        <div id="otherOptionsContent">
+                            <!-- Dynamically generated -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 3: More Examples -->
+                <div class="tab-content" id="tab-examples">
+                    <div class="example-sentences" id="exampleSentencesContent">
+                        <div class="example-title">📚 さらに例文</div>
+                        <!-- Dynamically generated -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="next-btn-container">
+                <button class="primary-btn" id="nextBtn" onclick="nextQuestion()">
+                    ▶️ 次の問題へ
+                </button>
+            </div>
+        </div>
+
+        <!-- Screen 4: Results -->
+        <div class="screen" id="resultsScreen">
+            <div class="quiz-header">
+                <button class="back-btn" onclick="goToScreen('homeScreen')">←</button>
+                <div class="quiz-progress">結果</div>
+                <div class="quiz-timer">💎 <span id="resultGems">12</span></div>
+            </div>
+
+            <div class="results-content">
+                <div class="results-emoji" id="resultsEmoji">🏆</div>
+                <div class="results-title" id="resultsTitle">お疲れ様でした！</div>
+                <div class="results-score" id="resultsScore">8/10</div>
+                <div class="results-subtitle" id="resultsSubtitle">正解率 80% - 素晴らしい！</div>
+
+                <div class="results-stats">
+                    <div class="stat-card">
+                        <div class="stat-value" id="statCorrect">8</div>
+                        <div class="stat-label">正解数</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statScore">800</div>
+                        <div class="stat-label">獲得スコア</div>
+                    </div>
+                </div>
+
+                <div class="review-list">
+                    <div class="review-title">🔁 復習おすすめ単語</div>
+                    <div id="reviewListContent">
+                        <div class="review-item">
+                            <span class="review-word">じゃあじゃあ</span>
+                            <span class="review-status">❌ 不正解</span>
+                        </div>
+                        <div class="review-item">
+                            <span class="review-word">にこにこ</span>
+                            <span class="review-status">❌ 不正解</span>
+                        </div>
+                    </div>
+                </div>
+
+                <button class="primary-btn" onclick="startQuiz()" style="margin-bottom: 10px;">
+                    🔄 もう一度挑戦
+                </button>
+                <button class="mission-cta" onclick="goToScreen('homeScreen')" style="width: 100%;">
+                    🏠 ホームに戻る
+                </button>
+            </div>
+
+            <div class="tab-bar">
+                <div class="tab-item" onclick="goToScreen('homeScreen')">
+                    <div class="tab-icon">🏠</div>
+                    <div class="tab-label">ホーム</div>
+                </div>
+                <div class="tab-item">
+                    <div class="tab-icon">🗂️</div>
+                    <div class="tab-label">図鑑</div>
+                </div>
+                <div class="tab-item active">
+                    <div class="tab-icon">📈</div>
+                    <div class="tab-label">進捗</div>
+                </div>
+                <div class="tab-item">
+                    <div class="tab-icon">⚙️</div>
+                    <div class="tab-label">設定</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Navigation Dots -->
+        <div class="nav-dots">
+            <div class="nav-dot active" onclick="goToScreen('homeScreen')"></div>
+            <div class="nav-dot" onclick="goToScreen('quizScreen')"></div>
+            <div class="nav-dot" onclick="goToScreen('feedbackScreen')"></div>
+            <div class="nav-dot" onclick="goToScreen('resultsScreen')"></div>
+        </div>
+    </div>
+
+    <script>
+        // 10 Questions Data with Fill-in-the-blank Sentences
+        const questions = [
+            {
+                id: 1,
+                image: "https://image.qwenlm.ai/public_source/90fae2a1-9e2a-4f48-82bf-14605299d948/16254784f-9347-453d-83e4-3a92bae6d854.png",
+                question: "【この雨の状況に合う言葉は？】",
+                correct: "しとしと",
+                roman: "shi-to-shi-to",
+                options: ["ざあざあ", "しとしと", "ぽつぽつ", "じゃあじゃあ"],
+                sentence: "梅雨の朝、窓の外では雨が（　　）と降り続けていた。",
+                sentenceHint: "小雨が静かに続く様子",
+                why: "「しとしと」は、雨音があまり大きくなく、穏やかに継続的に降る雨を表現します。梅雨の長い小雨にぴったりです。",
+                keyPoints: { strength: "弱〜中", sound: "静か", duration: "長い", mood: "穏やか" },
+                memoryTip: "「しとしと」=「静 (shizuka)」と音が似ています！",
+                others: [
+                    { word: "ざあざあ", roman: "za-a-za-a", usage: "大雨が激しく降っている時", example: "「突然、雨がざあざあ降り始めた」" },
+                    { word: "ぽつぽつ", roman: "po-tsu-po-tsu", usage: "雨が降り始めた瞬間、雨粒がまばら", example: "「あ、ぽつぽつ降ってきたね」" },
+                    { word: "じゃあじゃあ", roman: "ja-a-ja-a", usage: "水が大量に流れ出る時", example: "「水道からじゃあじゃあ水が出ている」" }
+                ],
+                moreExamples: [
+                    "祖母は（しとしと）降る雨を見ながら、お茶を飲んでいた。",
+                    "（しとしと）雨の日は、家で本を読むのが好きだ。",
+                    "庭の花が（しとしと）雨に濡れて、きれいだった。"
+                ]
+            },
+            {
+                id: 2,
+                image: "https://image.qwenlm.ai/public_source/90fae2a1-9e2a-4f48-82bf-14605299d948/16254784f-9347-453d-83e4-3a92bae6d854.png",
+                question: "【猫の歩き方は？】",
+                correct: "のしのし",
+                roman: "no-shi-no-shi",
+                options: ["のしのし", "てくてく", "すいすい", "よろよろ"],
+                sentence: "大きな黒猫が庭を（　　）と歩いていた。",
+                sentenceHint: "堂々と大きく歩く様子",
+                why: "「のしのし」は、大きく堂々と歩く様子を表します。猫が自信ありげに歩いている時に使います。",
+                keyPoints: { strength: "大きい", sound: "足音", duration: "継続", mood: "堂々" },
+                memoryTip: "「のし」は「伸す」→ 足を伸ばして歩くイメージ！",
+                others: [
+                    { word: "てくてく", roman: "te-ku-te-ku", usage: "コツコツと歩く様子", example: "「てくてく歩いて帰る」" },
+                    { word: "すいすい", roman: "su-i-su-i", usage: "軽やかに進む", example: "「水の中をすいすい泳ぐ」" },
+                    { word: "よろよろ", roman: "yo-ro-yo-ro", usage: "不安定に歩く", example: "「酔ってよろよろ歩く」" }
+                ],
+                moreExamples: [
+                    "社長が会議室に（のしのし）と入ってきた。",
+                    "（のしのし）歩く熊の姿がテレビに映っていた。",
+                    "彼は（のしのし）とステージに向かって歩いた。"
+                ]
+            },
+            {
+                id: 3,
+                image: "https://image.qwenlm.ai/public_source/90fae2a1-9e2a-4f48-82bf-14605299d948/16254784f-9347-453d-83e4-3a92bae6d854.png",
+                question: "【笑顔の表情は？】",
+                correct: "にこにこ",
+                roman: "ni-ko-ni-ko",
+                options: ["にこにこ", "にやにや", "しかめっ面", "むすっと"],
+                sentence: "太郎は大好きなケーキの前で思わず（　　）してしまう。",
+                sentenceHint: "楽しそうに笑う様子",
+                why: "「にこにこ」は、楽しそうに笑っている様子を表します。良い感情の笑顔に使います。",
+                keyPoints: { strength: "明るい", sound: "無音", duration: "継続", mood: "楽しい" },
+                memoryTip: "「ニコ」は笑顔の音！覚えやすいですね！",
+                others: [
+                    { word: "にやにや", roman: "ni-ya-ni-ya", usage: "不気味に笑う", example: "「にやにや笑っている」" },
+                    { word: "しかめっ面", roman: "shi-ka-me", usage: "不満な顔", example: "「しかめっ面をする」" },
+                    { word: "むすっと", roman: "mu-su-tto", usage: "不機嫌な様子", example: "「むすっとしている」" }
+                ],
+                moreExamples: [
+                    "赤ちゃんが（にこにこ）笑っていて、かわいかった。",
+                    "彼女はいつも（にこにこ）している人だ。",
+                    "（にこにこ）しながら、プレゼントを開けていた。"
+                ]
+            },
+            {
+                id: 4,
+                image: "https://image.qwenlm.ai/public_source/90fae2a1-9e2a-4f48-82bf-14605299d948/16254784f-9347-453d-83e4-3a92bae6d854.png",
+                question: "【光る様子を表す言葉は？】",
+                correct: "きらきら",
+                roman: "ki-ra-ki-ra",
+                options: ["きらきら", "ぴかぴか", "ぎらぎら", "ほわほわ"],
+                sentence: "夜空の星が（　　）と輝いていた。",
+                sentenceHint: "小さな光が美しく輝く様子",
+                why: "「きらきら」は、小さな光が美しく輝く様子を表します。星や宝石、目の輝きなどに使います。",
+                keyPoints: { strength: "小さい", sound: "無音", duration: "継続", mood: "美しい" },
+                memoryTip: "「きら」は「光 (hikari)」の音から来ています！",
+                others: [
+                    { word: "ぴかぴか", roman: "pi-ka-pi-ka", usage: "新品で光っている", example: "「ぴかぴかの靴」" },
+                    { word: "ぎらぎら", roman: "gi-ra-gi-ra", usage: "強すぎる光", example: "「太陽がぎらぎらしている」" },
+                    { word: "ほわほわ", roman: "ho-wa-ho-wa", usage: "柔らかい光", example: "「ほわほわした明かり」" }
+                ],
+                moreExamples: [
+                    "彼女の目が（きらきら）と輝いていた。",
+                    "（きらきら）したドレスを着て、パーティに行った。",
+                    "海が太陽の光で（きらきら）していた。"
+                ]
+            },
+            {
+                id: 5,
+                image: "https://image.qwenlm.ai/public_source/90fae2a1-9e2a-4f48-82bf-14605299d948/16254784f-9347-453d-83e4-3a92bae6d854.png",
+                question: "【心臓の音は？】",
+                correct: "どきどき",
+                roman: "do-ki-do-ki",
+                options: ["どきどき", "わくわく", "しんしん", "じんじん"],
+                sentence: "試験の結果を待つ間、心が（　　）した。",
+                sentenceHint: "心臓が速く鳴る様子",
+                why: "「どきどき」は、心臓が速く鳴る様子を表します。緊張や興奮している時に使います。",
+                keyPoints: { strength: "中", sound: "大きい", duration: "継続", mood: "緊張/興奮" },
+                memoryTip: "心臓の音「ドクン」から来ています！",
+                others: [
+                    { word: "わくわく", roman: "wa-ku-wa-ku", usage: "期待で興奮", example: "「旅行がわくわくする」" },
+                    { word: "しんしん", roman: "shi-n-shi-n", usage: "静かな様子", example: "「しんしんと静まる」" },
+                    { word: "じんじん", roman: "ji-n-ji-n", usage: "痺れる感じ", example: "「足がじんじんする」" }
+                ],
+                moreExamples: [
+                    "初めての人前でスピーチして、（どきどき）した。",
+                    "（どきどき）しながら、告白の手紙を読んだ。",
+                    "ジェットコースターで（どきどき）した。"
+                ]
+            },
+            {
+                id: 6,
+                image: "https://image.qwenlm.ai/public_source/90fae2a1-9e2a-4f48-82bf-14605299d948/16254784f-9347-453d-83e4-3a92bae6d854.png",
+                question: "【食べる音は？】",
+                correct: "ぱくぱく",
+                roman: "pa-ku-pa-ku",
+                options: ["ぱくぱく", "もぐもぐ", "ぺろぺろ", "ごくり"],
+                sentence: "子供がパンを（　　）と食べていた。",
+                sentenceHint: "口を大きく開けて食べる様子",
+                why: "「ぱくぱく」は、口を大きく開けて食べる様子を表します。魚や子供が食べる時によく使います。",
+                keyPoints: { strength: "中", sound: "大きい", duration: "継続", mood: "元気" },
+                memoryTip: "口を「パクッ」と開ける音から！",
+                others: [
+                    { word: "もぐもぐ", roman: "mo-gu-mo-gu", usage: "咀嚼する音", example: "「もぐもぐ食べる」" },
+                    { word: "ぺろぺろ", roman: "pe-ro-pe-ro", usage: "舐める音", example: "「アイスぺろぺろ」" },
+                    { word: "ごくり", roman: "go-ku-ri", usage: "飲み込む音", example: "「ごくりと飲み込む」" }
+                ],
+                moreExamples: [
+                    "金魚がエサを（ぱくぱく）と食べている。",
+                    "お腹が空いて、ご飯を（ぱくぱく）食べた。",
+                    "（ぱくぱく）食べる姿がかわいかった。"
+                ]
+            },
+            {
+                id: 7,
+                image: "https://image.qwenlm.ai/public_source/90fae2a1-9e2a-4f48-82bf-14605299d948/16254784f-9347-453d-83e4-3a92bae6d854.png",
+                question: "【眠っている様子は？】",
+                correct: "すやすや",
+                roman: "su-ya-su-ya",
+                options: ["すやすや", "ぐっすり", "うとうと", "ねむねむ"],
+                sentence: "赤ちゃんがベットで（　　）と眠っている。",
+                sentenceHint: "気持ちよさそうに眠る様子",
+                why: "「すやすや」は、気持ちよさそうに眠っている様子を表します。赤ちゃんや子供に使います。",
+                keyPoints: { strength: "静か", sound: "呼吸音", duration: "長い", mood: "平和" },
+                memoryTip: "「すーすー」呼吸音から来ています！",
+                others: [
+                    { word: "ぐっすり", roman: "gu-ssu-ri", usage: "深く眠る", example: "「ぐっすり眠る」" },
+                    { word: "うとうと", roman: "u-to-u-to", usage: "眠くなりかける", example: "「うとうとする」" },
+                    { word: "ねむねむ", roman: "ne-mu-ne-mu", usage: "眠たい様子", example: "「ねむねむしている」" }
+                ],
+                moreExamples: [
+                    "猫がコタツで（すやすや）眠っていた。",
+                    "（すやすや）眠る子供を見て、心が和んだ。",
+                    "午後の授業で（すやすや）してしまった。"
+                ]
+            },
+            {
+                id: 8,
+                image: "https://image.qwenlm.ai/public_source/90fae2a1-9e2a-4f48-82bf-14605299d948/16254784f-9347-453d-83e4-3a92bae6d854.png",
+                question: "【触った感じは？】",
+                correct: "つるつる",
+                roman: "tsu-ru-tsu-ru",
+                options: ["つるつる", "ざらざら", "ふわふわ", "ごつごつ"],
+                sentence: "この石は表面が（　　）していて気持ちいい。",
+                sentenceHint: "表面が滑らかな様子",
+                why: "「つるつる」は、表面が滑らかな様子を表します。肌や布、氷などに使います。",
+                keyPoints: { strength: "滑らか", sound: "無音", duration: "状態", mood: "気持ちいい" },
+                memoryTip: "「つる」は「滑る (suberu)」の音から！",
+                others: [
+                    { word: "ざらざら", roman: "za-ra-za-ra", usage: "粗い表面", example: "「ざらざらした紙」" },
+                    { word: "ふわふわ", roman: "fu-wa-fu-wa", usage: "柔らかい", example: "「ふわふわの雲」" },
+                    { word: "ごつごつ", roman: "go-tsu-go-tsu", usage: "硬くて凸凹", example: "「ごつごつした岩」" }
+                ],
+                moreExamples: [
+                    "彼女の肌は（つるつる）で美しかった。",
+                    "（つるつる）の氷をなめた。",
+                    "新しいスマホの画面は（つるつる）している。"
+                ]
+            },
+            {
+                id: 9,
+                image: "https://image.qwenlm.ai/public_source/90fae2a1-9e2a-4f48-82bf-14605299d948/16254784f-9347-453d-83e4-3a92bae6d854.png",
+                question: "【泣いている様子は？】",
+                correct: "しくしく",
+                roman: "shi-ku-shi-ku",
+                options: ["しくしく", "わんわん", "めそめそ", "号泣"],
+                sentence: "彼女は corner で（　　）と泣いていた。",
+                sentenceHint: "小さく泣く様子",
+                why: "「しくしく」は、小さく泣く様子を表します。悲しい時や悔しい時に使います。",
+                keyPoints: { strength: "小さい", sound: "泣き声", duration: "継続", mood: "悲しい" },
+                memoryTip: "「しく」は小さな泣き声の音！",
+                others: [
+                    { word: "わんわん", roman: "wa-n-wa-n", usage: "大きく泣く", example: "「わんわん泣く」" },
+                    { word: "めそめそ", roman: "me-so-me-so", usage: "泣きそうな様子", example: "「めそめそしている」" },
+                    { word: "号泣", roman: "go-u-kyu-u", usage: "激しく泣く", example: "「号泣する」" }
+                ],
+                moreExamples: [
+                    "子供が（しくしく）泣いている声が聞こえた。",
+                    "（しくしく）泣きながら、話をしていた。",
+                    "悔しくて（しくしく）してしまった。"
+                ]
+            },
+            {
+                id: 10,
+                image: "https://image.qwenlm.ai/public_source/90fae2a1-9e2a-4f48-82bf-14605299d948/16254784f-9347-453d-83e4-3a92bae6d854.png",
+                question: "【走っている様子は？】",
+                correct: "すいすい",
+                roman: "su-i-su-i",
+                options: ["すいすい", "のろのろ", "よちよち", "スタスタ"],
+                sentence: "魚が水の中を（　　）と泳いでいった。",
+                sentenceHint: "軽やかに速く進む様子",
+                why: "「すいすい」は、軽やかに速く進む様子を表します。水の中やスムーズな動きに使います。",
+                keyPoints: { strength: "速い", sound: "無音", duration: "継続", mood: "軽やか" },
+                memoryTip: "「すい」は「水 (mizu)」→ 水のように流れる！",
+                others: [
+                    { word: "のろのろ", roman: "no-ro-no-ro", usage: "とても遅い", example: "「のろのろ進む」" },
+                    { word: "よちよち", roman: "yo-chi-yo-chi", usage: "赤ちゃんの歩き方", example: "「よちよち歩く」" },
+                    { word: "スタスタ", roman: "su-ta-su-ta", usage: "軽快に歩く", example: "「スタスタ歩く」" }
+                ],
+                moreExamples: [
+                    "彼は水を飲んで、（すいすい）走り出した。",
+                    "（すいすい）と仕事をこなしていく。",
+                    "自転車で（すいすい）坂を下った。"
+                ]
+            }
+        ];
+
+        // Game State
+        let currentQuestionIndex = 0;
+        let score = 0;
+        let correctAnswers = 0;
+        let wrongAnswers = [];
+        let timeLeft = 30;
+        let timerInterval = null;
+        let answerRevealed = false;
+
+        function goToScreen(screenId) {
+            document.querySelectorAll('.screen').forEach(screen => {
+                screen.classList.remove('active');
+            });
+            document.getElementById(screenId).classList.add('active');
+
+            const screenOrder = ['homeScreen', 'quizScreen', 'feedbackScreen', 'resultsScreen'];
+            const screenIndex = screenOrder.indexOf(screenId);
+
+            document.querySelectorAll('.nav-dot').forEach((dot, index) => {
+                dot.classList.toggle('active', index === screenIndex);
+            });
+
+            document.getElementById('screenIndicator').textContent = `${screenIndex + 1}/4`;
+        }
+
+        function startQuiz() {
+            currentQuestionIndex = 0;
+            score = 0;
+            correctAnswers = 0;
+            wrongAnswers = [];
+            goToScreen('quizScreen');
+            loadQuestion();
+        }
+
+        function loadQuestion() {
+            const q = questions[currentQuestionIndex];
+            answerRevealed = false;
+
+            document.getElementById('quizProgress').textContent = `Q${currentQuestionIndex + 1}/10`;
+            document.getElementById('quizProgressText').textContent = `${currentQuestionIndex + 1}/10`;
+            document.getElementById('quizProgressBar').style.width = `${(currentQuestionIndex + 1) * 10}%`;
+            document.getElementById('questionText').textContent = q.question;
+            document.getElementById('questionImage').src = q.image;
+
+            // Generate fill-in-the-blank sentence
+            const sentenceHtml = q.sentence.replace('（　　）',
+                `<span class="blank-space" id="blankSpace" onclick="revealAnswer()">？</span>`
+            );
+            document.getElementById('sentenceText').innerHTML = sentenceHtml;
+            document.getElementById('revealBtn').disabled = false;
+            document.getElementById('revealBtn').textContent = '答えを表示';
+
+            const optionsContainer = document.getElementById('optionsContainer');
+            optionsContainer.innerHTML = '';
+
+            const letters = ['A', 'B', 'C', 'D'];
+            q.options.forEach((opt, index) => {
+                const btn = document.createElement('button');
+                btn.className = 'option-btn';
+                btn.innerHTML = `
+                    <span class="option-letter">${letters[index]}.</span>
+                    <span class="option-word">${opt}</span>
+                `;
+                btn.onclick = () => selectOption(btn, opt === q.correct);
+                optionsContainer.appendChild(btn);
+            });
+
+            timeLeft = 30;
+            updateTimer();
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                updateTimer();
+                if (timeLeft <= 0) {
+                    clearInterval(timerInterval);
+                    autoFail();
+                }
+            }, 1000);
+        }
+
+        function updateTimer() {
+            const minutes = Math.floor(timeLeft / 60);
+            const seconds = timeLeft % 60;
+            document.getElementById('timer').textContent =
+                `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }
+
+        function revealAnswer() {
+            if (answerRevealed) return;
+
+            const q = questions[currentQuestionIndex];
+            const blankSpace = document.getElementById('blankSpace');
+
+            if (blankSpace) {
+                blankSpace.textContent = q.correct;
+                blankSpace.classList.add('revealed');
+            }
+
+            document.getElementById('revealBtn').disabled = true;
+            document.getElementById('revealBtn').textContent = '答え表示済み';
+            answerRevealed = true;
+        }
+
+        function selectOption(btn, isCorrect) {
+            if (timerInterval) clearInterval(timerInterval);
+
+            document.querySelectorAll('.option-btn').forEach(option => {
+                option.style.pointerEvents = 'none';
+            });
+
+            const q = questions[currentQuestionIndex];
+
+            if (isCorrect) {
+                btn.classList.add('correct');
+                correctAnswers++;
+                score += 100 + Math.floor(timeLeft * 2);
+            } else {
+                btn.classList.add('incorrect');
+                wrongAnswers.push(q.correct);
+                document.querySelectorAll('.option-btn').forEach(option => {
+                    if (option.querySelector('.option-word').textContent === q.correct) {
+                        option.classList.add('correct');
+                    }
+                });
+            }
+
+            setTimeout(() => {
+                showFeedback(isCorrect);
+            }, 1000);
+        }
+
+        function autoFail() {
+            document.querySelectorAll('.option-btn').forEach(option => {
+                option.style.pointerEvents = 'none';
+                option.classList.add('incorrect');
+            });
+
+            const q = questions[currentQuestionIndex];
+            document.querySelectorAll('.option-btn').forEach(option => {
+                if (option.querySelector('.option-word').textContent === q.correct) {
+                    option.classList.add('correct');
+                }
+            });
+
+            wrongAnswers.push(q.correct);
+            setTimeout(() => {
+                showFeedback(false);
+            }, 1500);
+        }
+
+        function showFeedback(isCorrect) {
+            const q = questions[currentQuestionIndex];
+
+            document.getElementById('feedbackProgress').textContent = `Q${currentQuestionIndex + 1}/10`;
+            document.getElementById('feedbackGems').textContent = Math.floor(score / 50);
+            document.getElementById('feedbackEmoji').textContent = isCorrect ? '🎉' : '😢';
+            document.getElementById('feedbackTitle').textContent = isCorrect ? '正解！' : '残念...';
+            document.getElementById('feedbackTitle').className = `feedback-title ${isCorrect ? 'correct' : 'incorrect'}`;
+            document.getElementById('feedbackSubtitle').textContent = isCorrect ?
+                '素晴らしい！この調子で続けましょう' : '解説を読んで覚えましょう！';
+            document.getElementById('feedbackWord').textContent = `✨ ${q.correct}`;
+            document.getElementById('feedbackRoman').textContent = `[${q.roman}]`;
+            document.getElementById('whyExplanation').textContent = q.why;
+            document.getElementById('memoryTip').textContent = q.memoryTip;
+
+            // Complete sentence
+            const completeSentenceHtml = q.sentence.replace('（　　）',
+                `<span class="filled-word">${q.correct}</span>`
+            );
+            document.getElementById('completeSentence').innerHTML = completeSentenceHtml;
+
+            // Key points
+            const keyPointsHtml = `
+                <div class="key-point">
+                    <div class="key-point-label">強さ</div>
+                    <div class="key-point-value">${q.keyPoints.strength}</div>
+                </div>
+                <div class="key-point">
+                    <div class="key-point-label">音</div>
+                    <div class="key-point-value">${q.keyPoints.sound}</div>
+                </div>
+                <div class="key-point">
+                    <div class="key-point-label">時間</div>
+                    <div class="key-point-value">${q.keyPoints.duration}</div>
+                </div>
+                <div class="key-point">
+                    <div class="key-point-label">雰囲気</div>
+                    <div class="key-point-value">${q.keyPoints.mood}</div>
+                </div>
+            `;
+            document.getElementById('whyKeyPoints').innerHTML = keyPointsHtml;
+
+            // Other options
+            const otherOptionsHtml = q.others.map(opt => `
+                <div class="option-detail-card">
+                    <div class="option-detail-header">
+                        <span class="option-detail-word">❌ ${opt.word}</span>
+                        <span class="option-detail-roman">[${opt.roman}]</span>
+                    </div>
+                    <div class="option-detail-usage">${opt.usage}</div>
+                    <div class="option-detail-example">💬 ${opt.example}</div>
+                </div>
+            `).join('');
+            document.getElementById('otherOptionsContent').innerHTML = otherOptionsHtml;
+
+            // More examples
+            const moreExamplesHtml = `
+                <div class="example-title">📚 さらに例文</div>
+                ${q.moreExamples.map(ex => `
+                    <div class="example-item">
+                        ${ex.replace(q.correct, `<span class="example-highlight">${q.correct}</span>`)}
+                    </div>
+                `).join('')}
+            `;
+            document.getElementById('exampleSentencesContent').innerHTML = moreExamplesHtml;
+
+            if (isCorrect) {
+                createConfetti();
+            }
+
+            // Reset tabs
+            switchTab('why');
+
+            goToScreen('feedbackScreen');
+        }
+
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+
+            document.querySelector(`.tab-btn[onclick="switchTab('${tabName}')"]`).classList.add('active');
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+        }
+
+        function nextQuestion() {
+            currentQuestionIndex++;
+
+            if (currentQuestionIndex >= questions.length) {
+                showResults();
+            } else {
+                goToScreen('quizScreen');
+                loadQuestion();
+            }
+        }
+
+        function showResults() {
+            const percentage = Math.round((correctAnswers / questions.length) * 100);
+
+            document.getElementById('resultsEmoji').textContent = percentage >= 80 ? '🏆' : percentage >= 50 ? '👍' : '📚';
+            document.getElementById('resultsTitle').textContent = percentage >= 80 ? 'お疲れ様でした！' : percentage >= 50 ? 'もう一息！' : '復習しましょう！';
+            document.getElementById('resultsScore').textContent = `${correctAnswers}/${questions.length}`;
+            document.getElementById('resultsSubtitle').textContent = `正解率 ${percentage}% - ${percentage >= 80 ? '素晴らしい！' : percentage >= 50 ? 'よくできました！' : '頑張りましょう！'}`;
+            document.getElementById('statCorrect').textContent = correctAnswers;
+            document.getElementById('statScore').textContent = score;
+            document.getElementById('resultGems').textContent = Math.floor(score / 50);
+
+            const reviewHtml = wrongAnswers.map(word => `
+                <div class="review-item">
+                    <span class="review-word">${word}</span>
+                    <span class="review-status">❌ 要復習</span>
+                </div>
+            `).join('') || '<div class="review-item"><span class="review-word">🎉 全て正解！</span></div>';
+            document.getElementById('reviewListContent').innerHTML = reviewHtml;
+
+            // Update home screen stats
+            const currentBest = parseInt(document.getElementById('homeBestScore').textContent) || 0;
+            if (score > currentBest) {
+                document.getElementById('homeBestScore').textContent = `${score}点`;
+            }
+
+            goToScreen('resultsScreen');
+        }
+
+        function createConfetti() {
+            const colors = ['#2ECC71', '#F39C12', '#E74C3C', '#4A90E2', '#9B59B6', '#F1C40F'];
+
+            for (let i = 0; i < 30; i++) {
+                setTimeout(() => {
+                    const confetti = document.createElement('div');
+                    confetti.className = 'confetti';
+                    confetti.style.left = Math.random() * 100 + '%';
+                    confetti.style.background = colors[Math.floor(Math.random() * colors.length)];
+                    confetti.style.animationDelay = Math.random() * 0.5 + 's';
+                    document.getElementById('feedbackScreen').appendChild(confetti);
+
+                    setTimeout(() => confetti.remove(), 2000);
+                }, i * 30);
+            }
+        }
+
+        // Initialize
+        document.querySelectorAll('.tab-item').forEach(tab => {
+            tab.addEventListener('click', function () {
+                const parent = this.parentElement;
+                parent.querySelectorAll('.tab-item').forEach(t => t.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>日本語学習クイズ</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="sample-lp-page ui-v2">
+    <div class="sample-phone-frame lpv2-frame">
+      <div class="sample-phone-notch"></div>
+
+      <header class="lpv2-header">
+        <h1>日本語学習クイズ</h1>
+      </header>
+
+      <main class="lpv2-content">
+        <section class="lpv2-hero" aria-label="キービジュアル">
+          <div class="lpv2-hero-copy">
+            <p class="lpv2-catch">都市で学ぶ。ことばを磨く。</p>
+            <p class="lpv2-sub">短い問題と解説で、自然な日本語表現を身につけます。</p>
+          </div>
+        </section>
+
+        <section class="lpv2-login-card">
+          <label for="nameInput" class="lpv2-label">識別用の名前</label>
+          <input id="nameInput" class="lpv2-input" type="text" maxlength="24" placeholder="例: こうじ" />
+          <p id="lpMessage" class="lpv2-help">名前を入力して開始します。</p>
+          <button id="startBtn" class="lpv2-start-btn" type="button">クイズを始める</button>
+        </section>
+      </main>
+    </div>
+
+    <script src="/lp.js"></script>
+  </body>
+</html>
