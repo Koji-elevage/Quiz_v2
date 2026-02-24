@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test:e2e": "node tests/e2e-smoke.js"
+    "test:e2e": "node tests/e2e-smoke.js",
+    "migrate:to-cloud": "node scripts/migrate-sqlite-to-cloud.js"
   },
   "dependencies": {
     "@google/genai": "^1.42.0",

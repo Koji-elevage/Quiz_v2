@@ -67,3 +67,17 @@ node --check server.js public/admin.js public/quiz.js
 ADMIN_TOKEN=your-token node test_api.js
 APP_URL=http://localhost:3000 ADMIN_TOKEN=your-token npm run test:e2e
 ```
+
+## ローカルSQLiteから本番Cloudへ移行
+
+ローカルで作成したクイズを本番環境へコピーするコマンドです。
+
+```bash
+APP_URL=https://quiz-v2-590826073638.us-central1.run.app \\
+ADMIN_TOKEN=your-admin-token \\
+npm run migrate:to-cloud
+```
+
+補足:
+- 既定では同名タイトルはスキップされます（重複作成を避けるため）。
+- `E2E Smoke` で始まるタイトルは既定で除外されます。
