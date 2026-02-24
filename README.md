@@ -24,6 +24,16 @@ ADMIN_TOKEN=your-strong-random-token
 PORT=3000
 ```
 
+Cloud SQL(MySQL)を使う場合は、以下も設定します。
+
+```env
+DB_DRIVER=mysql
+CLOUD_SQL_CONNECTION_NAME=your-project:us-central1:quiz-v2-db
+MYSQL_DB=quizv2
+MYSQL_USER=quizapp
+MYSQL_PASSWORD=your-password
+```
+
 AI機能を使う場合は、いずれかのAPIキーも設定します。
 
 ```env
@@ -55,4 +65,5 @@ npm run dev
 ```bash
 node --check server.js public/admin.js public/quiz.js
 ADMIN_TOKEN=your-token node test_api.js
+APP_URL=http://localhost:3000 ADMIN_TOKEN=your-token npm run test:e2e
 ```

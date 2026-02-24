@@ -4,6 +4,7 @@ const path = require('path');
 const crypto = require('crypto');
 const fs = require('fs');
 const Database = require('better-sqlite3');
+const mysql = require('mysql2/promise');
 const multer = require('multer');
 const sharp = require('sharp');
 const QRCode = require('qrcode');
@@ -14,13 +15,19 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || process.env.G
 const app = express();
 const port = process.env.PORT || 3000;
 const ADMIN_TOKEN = String(process.env.ADMIN_TOKEN || '').trim();
+const DB_DRIVER = String(process.env.DB_DRIVER || (process.env.CLOUD_SQL_CONNECTION_NAME ? 'mysql' : 'sqlite')).trim();
 
 const dbPath = path.join(__dirname, 'db', 'quiz.sqlite');
-const dbDir = path.dirname(dbPath);
-if (!fs.existsSync(dbDir)) {
-  fs.mkdirSync(dbDir, { recursive: true });
+let sqliteDb = null;
+let mysqlPool = null;
+
+if (DB_DRIVER === 'sqlite') {
+  const dbDir = path.dirname(dbPath);
+  if (!fs.existsSync(dbDir)) {
+    fs.mkdirSync(dbDir, { recursive: true });
+  }
+  sqliteDb = new Database(dbPath);
 }
-const db = new Database(dbPath);
 
 // Ensure image generation directory exists
 const genImagesDir = path.join(__dirname, 'public', 'images', 'gen');
@@ -30,6 +37,100 @@ if (!fs.existsSync(genImagesDir)) {
 
 // Memory storage for multer (we process with sharp before saving)
 const upload = multer({ storage: multer.memoryStorage() });
+
+async function initDb() {
+  if (DB_DRIVER === 'mysql') {
+    const connectionName = String(process.env.CLOUD_SQL_CONNECTION_NAME || '').trim();
+    const dbName = String(process.env.MYSQL_DB || 'quizv2').trim();
+    const user = String(process.env.MYSQL_USER || '').trim();
+    const password = String(process.env.MYSQL_PASSWORD || '').trim();
+    const host = String(process.env.MYSQL_HOST || '').trim();
+    const port = Number(process.env.MYSQL_PORT || 3306);
+
+    const mysqlConfig = {
+      user,
+      password,
+      database: dbName,
+      waitForConnections: true,
+      connectionLimit: 10,
+      queueLimit: 0,
+      charset: 'utf8mb4'
+    };
+    if (connectionName) {
+      mysqlConfig.socketPath = `/cloudsql/${connectionName}`;
+    } else {
+      mysqlConfig.host = host || '127.0.0.1';
+      mysqlConfig.port = port;
+    }
+    mysqlPool = mysql.createPool(mysqlConfig);
+    await mysqlPool.execute(`
+      CREATE TABLE IF NOT EXISTS quizzes (
+        id VARCHAR(64) PRIMARY KEY,
+        title TEXT NOT NULL,
+        questions_json LONGTEXT NOT NULL,
+        created_at VARCHAR(40) NOT NULL
+      )
+    `);
+    await mysqlPool.execute(`
+      CREATE TABLE IF NOT EXISTS quiz_logs (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        quiz_id VARCHAR(64) NOT NULL,
+        learner_name VARCHAR(255) NOT NULL,
+        play_count INT DEFAULT 1,
+        latest_correct INT DEFAULT 0,
+        latest_total_attempts INT DEFAULT 0,
+        updated_at VARCHAR(40) NOT NULL,
+        UNIQUE KEY uq_quiz_learner (quiz_id, learner_name)
+      )
+    `);
+    return;
+  }
+
+  sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS quizzes (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      questions_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS quiz_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      quiz_id TEXT NOT NULL,
+      learner_name TEXT NOT NULL,
+      play_count INTEGER DEFAULT 1,
+      latest_correct INTEGER DEFAULT 0,
+      latest_total_attempts INTEGER DEFAULT 0,
+      updated_at TEXT NOT NULL,
+      UNIQUE(quiz_id, learner_name)
+    );
+  `);
+}
+
+async function dbAll(sql, params = []) {
+  if (DB_DRIVER === 'mysql') {
+    const [rows] = await mysqlPool.execute(sql, params);
+    return rows;
+  }
+  return sqliteDb.prepare(sql).all(...params);
+}
+
+async function dbGet(sql, params = []) {
+  if (DB_DRIVER === 'mysql') {
+    const [rows] = await mysqlPool.execute(sql, params);
+    return rows[0] || null;
+  }
+  return sqliteDb.prepare(sql).get(...params);
+}
+
+async function dbRun(sql, params = []) {
+  if (DB_DRIVER === 'mysql') {
+    const [result] = await mysqlPool.execute(sql, params);
+    return { changes: Number(result.affectedRows || 0), lastInsertRowid: Number(result.insertId || 0) };
+  }
+  const result = sqliteDb.prepare(sql).run(...params);
+  return { changes: result.changes, lastInsertRowid: result.lastInsertRowid };
+}
 
 function isAuthorizedAdmin(req) {
   if (!ADMIN_TOKEN) {
@@ -77,26 +178,6 @@ function createRateLimiter({ windowMs, max }) {
 
 const aiRateLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 10 });
 const uploadRateLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 20 });
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS quizzes (
-    id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    questions_json TEXT NOT NULL,
-    created_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS quiz_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    quiz_id TEXT NOT NULL,
-    learner_name TEXT NOT NULL,
-    play_count INTEGER DEFAULT 1,
-    latest_correct INTEGER DEFAULT 0,
-    latest_total_attempts INTEGER DEFAULT 0,
-    updated_at TEXT NOT NULL,
-    UNIQUE(quiz_id, learner_name)
-  );
-`);
 
 app.use((_req, res, next) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -189,39 +270,39 @@ async function buildQuizSharePayload(req, id) {
   return { quizUrl, qrDataUrl };
 }
 
-app.get('/api/quizzes', requireAdminAuth, (_req, res) => {
-  const rows = db
-    .prepare('SELECT id, title, questions_json, created_at FROM quizzes ORDER BY created_at DESC')
-    .all();
-
-  const items = rows.map((row) => {
-    const questions = JSON.parse(row.questions_json);
-    return {
-      id: row.id,
-      title: row.title,
-      questionCount: questions.length,
-      createdAt: row.created_at
-    };
-  });
-
-  res.json({ items });
+app.get('/api/quizzes', requireAdminAuth, async (_req, res) => {
+  try {
+    const rows = await dbAll('SELECT id, title, questions_json, created_at FROM quizzes ORDER BY created_at DESC');
+    const items = rows.map((row) => {
+      const questions = JSON.parse(row.questions_json);
+      return {
+        id: row.id,
+        title: row.title,
+        questionCount: questions.length,
+        createdAt: row.created_at
+      };
+    });
+    res.json({ items });
+  } catch (error) {
+    res.status(500).json({ message: 'クイズ一覧の取得に失敗しました。' });
+  }
 });
 
-app.get('/api/quizzes/:id', (req, res) => {
-  const row = db
-    .prepare('SELECT id, title, questions_json, created_at FROM quizzes WHERE id = ?')
-    .get(req.params.id);
-
-  if (!row) {
-    return res.status(404).json({ message: 'クイズが見つかりません。' });
+app.get('/api/quizzes/:id', async (req, res) => {
+  try {
+    const row = await dbGet('SELECT id, title, questions_json, created_at FROM quizzes WHERE id = ?', [req.params.id]);
+    if (!row) {
+      return res.status(404).json({ message: 'クイズが見つかりません。' });
+    }
+    return res.json({
+      id: row.id,
+      title: row.title,
+      questions: JSON.parse(row.questions_json),
+      createdAt: row.created_at
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'クイズ取得に失敗しました。' });
   }
-
-  return res.json({
-    id: row.id,
-    title: row.title,
-    questions: JSON.parse(row.questions_json),
-    createdAt: row.created_at
-  });
 });
 
 app.post('/api/quizzes', requireAdminAuth, async (req, res) => {
@@ -241,9 +322,10 @@ app.post('/api/quizzes', requireAdminAuth, async (req, res) => {
     const id = crypto.randomUUID().slice(0, 8);
     const createdAt = new Date().toISOString();
 
-    db.prepare(
-      'INSERT INTO quizzes (id, title, questions_json, created_at) VALUES (?, ?, ?, ?)'
-    ).run(id, title, JSON.stringify(questions), createdAt);
+    await dbRun(
+      'INSERT INTO quizzes (id, title, questions_json, created_at) VALUES (?, ?, ?, ?)',
+      [id, title, JSON.stringify(questions), createdAt]
+    );
 
     const { quizUrl, qrDataUrl } = await buildQuizSharePayload(req, id);
 
@@ -255,7 +337,7 @@ app.post('/api/quizzes', requireAdminAuth, async (req, res) => {
 
 app.put('/api/quizzes/:id', requireAdminAuth, async (req, res) => {
   try {
-    const existing = db.prepare('SELECT id FROM quizzes WHERE id = ?').get(req.params.id);
+    const existing = await dbGet('SELECT id FROM quizzes WHERE id = ?', [req.params.id]);
     if (!existing) {
       return res.status(404).json({ message: '更新対象が見つかりません。' });
     }
@@ -273,11 +355,11 @@ app.put('/api/quizzes/:id', requireAdminAuth, async (req, res) => {
 
     const questions = rawQuestions.map((q, i) => normalizeQuestion(q, i));
 
-    db.prepare('UPDATE quizzes SET title = ?, questions_json = ? WHERE id = ?').run(
+    await dbRun('UPDATE quizzes SET title = ?, questions_json = ? WHERE id = ?', [
       title,
       JSON.stringify(questions),
       req.params.id
-    );
+    ]);
 
     const { quizUrl, qrDataUrl } = await buildQuizSharePayload(req, req.params.id);
     return res.status(200).json({ id: req.params.id, quizUrl, qrDataUrl });
@@ -286,8 +368,8 @@ app.put('/api/quizzes/:id', requireAdminAuth, async (req, res) => {
   }
 });
 
-app.delete('/api/quizzes/:id', requireAdminAuth, (req, res) => {
-  const result = db.prepare('DELETE FROM quizzes WHERE id = ?').run(req.params.id);
+app.delete('/api/quizzes/:id', requireAdminAuth, async (req, res) => {
+  const result = await dbRun('DELETE FROM quizzes WHERE id = ?', [req.params.id]);
 
   if (!result.changes) {
     return res.status(404).json({ message: '削除対象が見つかりません。' });
@@ -296,7 +378,7 @@ app.delete('/api/quizzes/:id', requireAdminAuth, (req, res) => {
   return res.status(204).send();
 });
 
-app.post('/api/quizzes/:id/log', (req, res) => {
+app.post('/api/quizzes/:id/log', async (req, res) => {
   const quizId = req.params.id;
   const learnerName = String(req.body?.learnerName || '').trim();
   const correctCount = Number(req.body?.correctCount || 0);
@@ -308,19 +390,30 @@ app.post('/api/quizzes/:id/log', (req, res) => {
 
   try {
     const now = new Date().toISOString();
-    const existing = db.prepare('SELECT id, play_count FROM quiz_logs WHERE quiz_id = ? AND learner_name = ?').get(quizId, learnerName);
-
-    if (existing) {
-      db.prepare(`
-        UPDATE quiz_logs 
-        SET play_count = ?, latest_correct = ?, latest_total_attempts = ?, updated_at = ?
-        WHERE id = ?
-      `).run(existing.play_count + 1, correctCount, totalAttempts, now, existing.id);
-    } else {
-      db.prepare(`
+    if (DB_DRIVER === 'mysql') {
+      await dbRun(`
         INSERT INTO quiz_logs (quiz_id, learner_name, play_count, latest_correct, latest_total_attempts, updated_at)
         VALUES (?, ?, 1, ?, ?, ?)
-      `).run(quizId, learnerName, correctCount, totalAttempts, now);
+        ON DUPLICATE KEY UPDATE
+          play_count = play_count + 1,
+          latest_correct = VALUES(latest_correct),
+          latest_total_attempts = VALUES(latest_total_attempts),
+          updated_at = VALUES(updated_at)
+      `, [quizId, learnerName, correctCount, totalAttempts, now]);
+    } else {
+      const existing = await dbGet('SELECT id, play_count FROM quiz_logs WHERE quiz_id = ? AND learner_name = ?', [quizId, learnerName]);
+      if (existing) {
+        await dbRun(`
+          UPDATE quiz_logs
+          SET play_count = ?, latest_correct = ?, latest_total_attempts = ?, updated_at = ?
+          WHERE id = ?
+        `, [existing.play_count + 1, correctCount, totalAttempts, now, existing.id]);
+      } else {
+        await dbRun(`
+        INSERT INTO quiz_logs (quiz_id, learner_name, play_count, latest_correct, latest_total_attempts, updated_at)
+        VALUES (?, ?, 1, ?, ?, ?)
+      `, [quizId, learnerName, correctCount, totalAttempts, now]);
+      }
     }
 
     return res.status(200).json({ success: true });
@@ -330,9 +423,9 @@ app.post('/api/quizzes/:id/log', (req, res) => {
   }
 });
 
-app.get('/api/quizzes/:id/logs', requireAdminAuth, (req, res) => {
+app.get('/api/quizzes/:id/logs', requireAdminAuth, async (req, res) => {
   try {
-    const logs = db.prepare('SELECT * FROM quiz_logs WHERE quiz_id = ? ORDER BY updated_at DESC').all(req.params.id);
+    const logs = await dbAll('SELECT * FROM quiz_logs WHERE quiz_id = ? ORDER BY updated_at DESC', [req.params.id]);
     return res.status(200).json(logs);
   } catch (error) {
     console.error('Failed to fetch quiz logs:', error);
@@ -634,6 +727,14 @@ app.use((err, req, res, next) => {
   return next(err);
 });
 
-app.listen(port, () => {
-  console.log(`日本語クイズ app listening on http://localhost:${port}`);
+async function start() {
+  await initDb();
+  app.listen(port, () => {
+    console.log(`日本語クイズ app listening on http://localhost:${port} (db=${DB_DRIVER})`);
+  });
+}
+
+start().catch((error) => {
+  console.error('Failed to start server:', error);
+  process.exit(1);
 });
