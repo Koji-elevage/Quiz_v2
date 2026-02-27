@@ -8,6 +8,7 @@ const formMessage = document.getElementById('formMessage');
 const editStatus = document.getElementById('editStatus');
 const quizListBody = document.getElementById('quizListBody');
 const titleInput = document.getElementById('titleInput');
+const titleWorkStatus = document.getElementById('titleWorkStatus');
 const promptConfigTypeSelect = document.getElementById('promptConfigType');
 const promptConfigEditorPanel = document.getElementById('promptConfigEditorPanel');
 const promptConfigEditorTitle = document.getElementById('promptConfigEditorTitle');
@@ -614,12 +615,10 @@ function createQuestionRow(index, question = null) {
     // Re-run bolding logic whenever the select changes
     row.querySelector('.correctIndex').addEventListener('change', updateBoldChoice);
     row.querySelector('.remove-row').addEventListener('click', () => {
-        const rowCount = questionBody.querySelectorAll('tr').length;
-        if (rowCount <= 5) {
-            clearQuestionRow(row);
-            return;
-        }
         row.remove();
+        while (questionBody.querySelectorAll('tr').length < 5) {
+            addRow();
+        }
         renumberRows();
     });
 
@@ -682,7 +681,11 @@ function createQuestionRow(index, question = null) {
 
             if (!res.ok) {
                 const errJson = await res.json().catch(() => ({}));
-                throw new Error(errJson.message || '画像のアップロードに失敗しました。');
+                const baseMessage = String(errJson.message || '画像のアップロードに失敗しました。');
+                if (res.status === 429 || isRateLimitErrorMessage(baseMessage)) {
+                    throw new Error('生成AIがちょっと疲れました。しばらくしてもう一度お試しください。');
+                }
+                throw new Error(baseMessage);
             }
 
             const data = await res.json();
@@ -696,8 +699,13 @@ function createQuestionRow(index, question = null) {
                 hiddenUrlInput.dispatchEvent(new Event('change', { bubbles: true }));
             }
         } catch (error) {
-            console.error(error);
-            alert(error.message);
+            const message = String(error?.message || '画像生成に失敗しました。');
+            if (isRateLimitErrorMessage(message)) {
+                setMessage('生成AIがちょっと疲れました。しばらくしてもう一度お試しください。', 'notice');
+            } else {
+                console.error(error);
+                setMessage(message, 'error');
+            }
         } finally {
             uploadBtn.disabled = false;
             uploadBtn.textContent = oldUploadText;
@@ -731,6 +739,24 @@ function createQuestionRow(index, question = null) {
             return;
         }
 
+        // Fill-only mode: if nothing is empty, do not call API and explain why.
+        const hasEmptyPrompt = !String(row.querySelector('.prompt')?.value || '').trim();
+        const hasEmptySentence = !String(row.querySelector('.sentence')?.value || '').trim();
+        const hasEmptyExplanation = !String(row.querySelector('.explanation')?.value || '').trim();
+        const hasEmptyIncorrectChoice = [0, 1, 2].some((i) => {
+            if (i.toString() === correctIdx) return false;
+            return !String(row.querySelector(`.choice${i}`)?.value || '').trim();
+        });
+        const hasEmptyOthers = !String(row.querySelector('.o0Usage')?.value || '').trim()
+            || !String(row.querySelector('.o0Example')?.value || '').trim()
+            || !String(row.querySelector('.o1Usage')?.value || '').trim()
+            || !String(row.querySelector('.o1Example')?.value || '').trim();
+        const hasAnyEmptyField = hasEmptyPrompt || hasEmptySentence || hasEmptyExplanation || hasEmptyIncorrectChoice || hasEmptyOthers;
+        if (!hasAnyEmptyField) {
+            setMessage('未入力欄がありません。正解番号と選択肢の整合を確認してください。', 'notice');
+            return;
+        }
+
         btn.disabled = true;
         btn.textContent = '⏳...';
 
@@ -739,14 +765,21 @@ function createQuestionRow(index, question = null) {
             prompt: row.querySelector('.prompt')?.value?.trim() || null,
             sentence: row.querySelector('.sentence')?.value?.trim() || null,
             explanation: row.querySelector('.explanation')?.value?.trim() || null,
+            correctIndex: Number(correctIdx),
             choices: [],
+            choiceSlots: [],
             others: []
         };
 
-        // Gather existing choices
-        for (let i = 0; i <= 2; i++) {
+        // Gather existing choices / slots
+        for (let i = 0; i <= 2; i += 1) {
+            const choiceVal = row.querySelector(`.choice${i}`)?.value?.trim() || null;
+            context.choiceSlots.push({
+                index: i,
+                isCorrect: i.toString() === correctIdx,
+                value: choiceVal
+            });
             if (i.toString() !== correctIdx) {
-                const choiceVal = row.querySelector(`.choice${i}`)?.value?.trim();
                 context.choices.push(choiceVal || null);
             }
         }
@@ -774,10 +807,17 @@ function createQuestionRow(index, question = null) {
 
             if (!res.ok) {
                 const errJson = await res.json().catch(() => ({}));
-                throw new Error(errJson.message || 'AI生成に失敗しました。');
+                const baseMessage = String(errJson.message || 'AI生成に失敗しました。');
+                if (res.status === 429 || isRateLimitErrorMessage(baseMessage)) {
+                    throw new Error('生成AIがちょっと疲れました。しばらくしてもう一度お試しください。');
+                }
+                throw new Error(baseMessage);
             }
 
             const data = await res.json();
+            if (data.warning) {
+                setMessage(String(data.warning), 'notice');
+            }
 
             // Populate fields only if they are returned by AI (AI won't return fields we already gave it)
             if (data.prompt) row.querySelector('.prompt').value = data.prompt;
@@ -787,13 +827,24 @@ function createQuestionRow(index, question = null) {
             // Populate incorrect choices
             if (data.choices && data.choices.length > 0) {
                 let generatedIdx = 0;
+                const usedChoices = new Set();
+                for (let i = 0; i <= 2; i += 1) {
+                    const existing = row.querySelector(`.choice${i}`)?.value?.trim();
+                    if (existing) usedChoices.add(existing);
+                }
                 for (let i = 0; i <= 2; i++) {
                     if (i.toString() !== correctIdx) {
                         const input = row.querySelector(`.choice${i}`);
                         // If input was empty, fill it with the next generated choice
                         if (input && !input.value.trim() && generatedIdx < data.choices.length) {
-                            input.value = data.choices[generatedIdx];
-                            generatedIdx++;
+                            while (generatedIdx < data.choices.length) {
+                                const candidate = String(data.choices[generatedIdx] || '').trim();
+                                generatedIdx++;
+                                if (!candidate || usedChoices.has(candidate)) continue;
+                                input.value = candidate;
+                                usedChoices.add(candidate);
+                                break;
+                            }
                         }
                     }
                 }
@@ -815,18 +866,17 @@ function createQuestionRow(index, question = null) {
             btn.textContent = '✨';
 
         } catch (error) {
-            console.error(error);
-            const oldBg = btn.style.backgroundColor;
-            const oldColor = btn.style.color;
-            btn.style.backgroundColor = '#fee2e2';
-            btn.style.color = '#b91c1c';
-            btn.textContent = 'エラー';
-            setTimeout(() => {
-                btn.style.backgroundColor = oldBg;
-                btn.style.color = oldColor;
-                btn.textContent = '✨';
+            const message = String(error?.message || 'AI生成に失敗しました。');
+            if (isRateLimitErrorMessage(message)) {
+                setMessage('生成AIがちょっと疲れました。しばらくしてもう一度お試しください。', 'notice');
                 btn.disabled = false;
-            }, 3000);
+                btn.textContent = '✨';
+                return;
+            }
+            console.error(error);
+            setMessage(message, 'error');
+            btn.disabled = false;
+            btn.textContent = '✨';
         }
     });
 
@@ -849,12 +899,13 @@ function createQuestionRow(index, question = null) {
         // Gather context
         const previewImg = row.querySelector('.image-preview');
         const currentPreviewSrc = previewImg?.currentSrc || previewImg?.src || '';
+        const currentImageUrlValue = String(row.querySelector('.imageUrl')?.value || '').trim();
         const context = {
             sentence: row.querySelector('.sentence')?.value?.trim() || null,
             correct: null,
             explanation: row.querySelector('.explanation')?.value?.trim() || null,
             additionalPrompt: additionalPrompt?.trim() || null,
-            currentImageUrl: String(currentPreviewSrc || '').trim() || null,
+            currentImageUrl: currentImageUrlValue || null,
             sampleImageUrl: '/images/gen/sample_cleaned.png',
         };
         const correctIdx = row.querySelector('.correctIndex')?.value;
@@ -877,6 +928,9 @@ function createQuestionRow(index, question = null) {
                 const errJson = await res.json().catch(() => ({}));
                 const detail = String(errJson.error || '').trim();
                 const base = String(errJson.message || '画像生成に失敗しました。').trim();
+                if (res.status === 429 || isRateLimitErrorMessage(base) || isRateLimitErrorMessage(detail)) {
+                    throw new Error('生成AIがちょっと疲れました。しばらくしてもう一度お試しください。');
+                }
                 throw new Error(detail ? `${base}\n詳細: ${detail}` : base);
             }
 
@@ -900,8 +954,13 @@ function createQuestionRow(index, question = null) {
                 }
             }
         } catch (error) {
-            console.error(error);
-            alert(error.message);
+            const message = String(error?.message || '画像生成に失敗しました。');
+            if (isRateLimitErrorMessage(message)) {
+                setMessage('生成AIがちょっと疲れました。しばらくしてもう一度お試しください。', 'notice');
+            } else {
+                console.error(error);
+                setMessage(message, 'error');
+            }
         } finally {
             btn.disabled = false;
             btn.textContent = oldText;
@@ -1064,6 +1123,18 @@ function setMessage(message, type = 'notice') {
     formMessage.className = type;
 }
 
+// Keep admin UX non-blocking: route legacy alert popups to inline message area.
+window.alert = (message) => {
+    setMessage(String(message || ''), 'error');
+};
+
+function isRateLimitErrorMessage(message) {
+    const text = String(message || '');
+    return text.includes('生成AIがちょっと疲れました')
+        || text.includes('リクエストが多すぎます')
+        || text.includes('429');
+}
+
 function getEditorSnapshot() {
     const draft = collectDraftFromDom();
     return JSON.stringify({
@@ -1075,6 +1146,7 @@ function getEditorSnapshot() {
 
 function markEditorCommitted() {
     state.lastCommittedSnapshot = getEditorSnapshot();
+    refreshTitleWorkStatus();
 }
 
 function hasUnsavedEditorChanges() {
@@ -1124,6 +1196,7 @@ function saveDraftNow() {
 
 function scheduleDraftSave() {
     if (state.suppressDraftSave) return;
+    refreshTitleWorkStatus();
     if (state.draftTimer) {
         clearTimeout(state.draftTimer);
     }
@@ -1319,17 +1392,31 @@ function setEditMode(quiz = null) {
     if (!quiz) {
         state.editingQuizId = null;
         saveQuizBtn.textContent = '保存してQRを生成';
-        cancelEditBtn.disabled = true;
         editStatus.classList.add('hidden');
         editStatus.textContent = '';
+        refreshTitleWorkStatus();
         return;
     }
 
     state.editingQuizId = quiz.id;
     saveQuizBtn.textContent = '更新してQRを再生成';
-    cancelEditBtn.disabled = false;
     editStatus.classList.remove('hidden');
     editStatus.textContent = `編集中: ${quiz.title}（ID: ${quiz.id}）`;
+    refreshTitleWorkStatus();
+}
+
+function refreshTitleWorkStatus() {
+    if (!titleWorkStatus) return;
+    const dirty = hasUnsavedEditorChanges();
+    if (dirty) {
+        titleWorkStatus.textContent = '編集中';
+        titleWorkStatus.classList.remove('saved');
+        titleWorkStatus.classList.add('editing');
+        return;
+    }
+    titleWorkStatus.textContent = '保存済';
+    titleWorkStatus.classList.remove('editing');
+    titleWorkStatus.classList.add('saved');
 }
 
 function renderShareResult(data) {
@@ -1498,7 +1585,9 @@ async function editQuiz(quizId) {
     }
 }
 
-function cancelEdit() {
+function cancelEdit({ skipConfirm = false } = {}) {
+    const proceed = skipConfirm || window.confirm('新規作成を開始します。現在編集中のタイトルと内容は破棄されます。よろしいですか？');
+    if (!proceed) return;
     setEditMode(null);
     titleInput.value = '';
     resetQuestionRows(5);
@@ -1604,7 +1693,7 @@ async function loadQuizList() {
                     setMessage(`「${item.title}」を削除しました。`, 'success');
                     row.remove();
                     if (state.editingQuizId === item.id) {
-                        cancelEdit();
+                        cancelEdit({ skipConfirm: true });
                     }
                 } else {
                     const err = await res.json().catch(() => ({}));
@@ -1701,6 +1790,8 @@ resetQuestionRows(5);
 const restored = restoreDraftIfAny();
 if (!restored) {
     markEditorCommitted();
+} else {
+    refreshTitleWorkStatus();
 }
 openPromptConfigEditor('');
 window.addEventListener('beforeunload', saveDraftNow);

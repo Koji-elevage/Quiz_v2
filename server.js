@@ -44,6 +44,9 @@ const PROMPT_CONFIG_TYPES = ['question', 'image'];
 const IMAGE_GEN_MAX_ATTEMPTS = 3;
 const IMAGE_BORDER_CHECK_SIZE = 256;
 const IMAGE_BORDER_STRIP = 8;
+const QUESTION_AI_RATE_MAX = Math.max(30, Number(process.env.QUESTION_AI_RATE_MAX || 60) || 60);
+const IMAGE_AI_RATE_MAX = Math.max(10, Number(process.env.IMAGE_AI_RATE_MAX || 20) || 20);
+const AI_RATE_WINDOW_MS = Math.max(10_000, Number(process.env.AI_RATE_WINDOW_MS || 60_000) || 60_000);
 
 const DEFAULT_PROMPT_YAML = {
   question: [
@@ -63,7 +66,10 @@ const DEFAULT_PROMPT_YAML = {
     '  【重要ルール】',
     '  - 既に値が入っている項目は維持し、空欄（null/空文字）の部分だけを補完すること。',
     '  - sentence には必ず「（　　）」を含め、そこに「{{word}}」が入る文にすること。',
-    '  - choices は「{{word}}」と異なる不正解2件を出力すること。',
+    '  - choices は「未入力の不正解枠を埋める語のみ」を返すこと。',
+    '  - 既入力の不正解語は再提案しない。正解語「{{word}}」とも重複しないこと。',
+    '  - choices は重複禁止。sentence / explanation と意味的に整合すること。',
+    '  - others は choices と同順で対応させ、usage/example はその語の意味に合う内容にすること。',
     '',
     '  【出力JSONフォーマット】',
     '  {',
@@ -478,13 +484,16 @@ function createRateLimiter({ windowMs, max }) {
     fresh.push(now);
     buckets.set(key, fresh);
     if (fresh.length > max) {
-      return res.status(429).json({ message: 'リクエストが多すぎます。しばらく待って再試行してください。' });
+      return res.status(429).json({
+        message: '生成AIがちょっと疲れました。しばらくしてもう一度お試しください。'
+      });
     }
     return next();
   };
 }
 
-const aiRateLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 10 });
+const questionAiRateLimiter = createRateLimiter({ windowMs: AI_RATE_WINDOW_MS, max: QUESTION_AI_RATE_MAX });
+const imageAiRateLimiter = createRateLimiter({ windowMs: AI_RATE_WINDOW_MS, max: IMAGE_AI_RATE_MAX });
 const uploadRateLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 20 });
 
 app.use((_req, res, next) => {
@@ -686,6 +695,10 @@ app.get('/', (_req, res) => {
 
 app.get('/teacher-login', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'teacher-login.html'));
+});
+
+app.get('/teacher-manual-v2', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'Teacher_Manual_v2.html'));
 });
 
 app.get('/owner-admin', (_req, res) => {
@@ -1030,10 +1043,286 @@ async function buildQuestionSystemPrompt({ word, context }) {
     config = parsePromptConfigYaml('question', DEFAULT_PROMPT_YAML.question);
   }
   const contextJson = JSON.stringify(context || {}, null, 2);
-  return renderPromptTemplate(config.template, {
+  const rendered = renderPromptTemplate(config.template, {
     word: String(word || '').trim(),
     context_json: contextJson
   });
+  return `${rendered}
+
+【整合性ルール（最優先）】
+- Context内で既に値が入っている項目は確定値として扱い、変更しない。
+- sentence / prompt / explanation は、正解語と既入力の選択肢・補足文と矛盾しない内容にする。
+- choices には「未入力の不正解枠を埋める語だけ」を返す。既入力の不正解語を再提案しない。
+- choices の各語は、正解語と重複禁止・choices内で重複禁止。
+- others は choices と同じ順序で対応させる。各要素は usage/example をその語の意味に整合させる。
+- 出力形式はJSONのみ。`;
+}
+
+function sanitizeGeneratedQuestionOutput(generated, { word, context }) {
+  const safe = generated && typeof generated === 'object' ? generated : {};
+  const normalizedWord = String(word || '').trim();
+  const existingChoiceSet = new Set();
+  if (Array.isArray(context?.choiceSlots)) {
+    for (const slot of context.choiceSlots) {
+      const value = String(slot?.value || '').trim();
+      if (value) existingChoiceSet.add(value);
+    }
+  } else if (Array.isArray(context?.choices)) {
+    for (const valueRaw of context.choices) {
+      const value = String(valueRaw || '').trim();
+      if (value) existingChoiceSet.add(value);
+    }
+  }
+  if (normalizedWord) existingChoiceSet.add(normalizedWord);
+
+  const rawChoices = Array.isArray(safe.choices) ? safe.choices : [];
+  const rawOthers = Array.isArray(safe.others) ? safe.others : [];
+  const filteredChoices = [];
+  const filteredOthers = [];
+
+  for (let i = 0; i < rawChoices.length; i += 1) {
+    const candidate = String(rawChoices[i] || '').trim();
+    if (!candidate) continue;
+    if (existingChoiceSet.has(candidate)) continue;
+    existingChoiceSet.add(candidate);
+    filteredChoices.push(candidate);
+
+    const o = rawOthers[i] || {};
+    filteredOthers.push({
+      usage: String(o.usage || '').trim(),
+      example: String(o.example || '').trim()
+    });
+    if (filteredChoices.length >= 2) break;
+  }
+
+  return {
+    prompt: String(safe.prompt || '').trim(),
+    sentence: String(safe.sentence || '').trim(),
+    explanation: String(safe.explanation || '').trim(),
+    choices: filteredChoices,
+    others: filteredOthers
+  };
+}
+
+function getMissingIncorrectChoiceCount(context) {
+  if (Array.isArray(context?.choiceSlots) && context.choiceSlots.length) {
+    return context.choiceSlots.filter((slot) => !slot?.isCorrect && !String(slot?.value || '').trim()).length;
+  }
+  if (Array.isArray(context?.choices)) {
+    return context.choices.filter((v) => !String(v || '').trim()).length;
+  }
+  return 2;
+}
+
+function buildForbiddenChoiceSet({ word, context, generatedChoices = [] }) {
+  const set = new Set();
+  const normalizedWord = String(word || '').trim();
+  if (normalizedWord) set.add(normalizedWord);
+  if (Array.isArray(context?.choiceSlots)) {
+    for (const slot of context.choiceSlots) {
+      const value = String(slot?.value || '').trim();
+      if (value) set.add(value);
+    }
+  } else if (Array.isArray(context?.choices)) {
+    for (const valueRaw of context.choices) {
+      const value = String(valueRaw || '').trim();
+      if (value) set.add(value);
+    }
+  }
+  for (const choice of generatedChoices) {
+    const value = String(choice || '').trim();
+    if (value) set.add(value);
+  }
+  return set;
+}
+
+function stripCodeFenceJson(text) {
+  return String(text || '').replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+}
+
+function getIncorrectWordsFromContext(context) {
+  if (Array.isArray(context?.choiceSlots) && context.choiceSlots.length) {
+    return context.choiceSlots
+      .filter((slot) => !slot?.isCorrect)
+      .map((slot) => String(slot?.value || '').trim());
+  }
+  if (Array.isArray(context?.choices)) {
+    return context.choices.map((v) => String(v || '').trim());
+  }
+  return ['', ''];
+}
+
+function buildMissingOthersTargets(context) {
+  const words = getIncorrectWordsFromContext(context);
+  const others = Array.isArray(context?.others) ? context.others : [];
+  const targets = [];
+  for (let i = 0; i < 2; i += 1) {
+    const item = others[i] || {};
+    const usage = String(item?.usage || '').trim();
+    const example = String(item?.example || '').trim();
+    const word = String(words[i] || '').trim();
+    if (!word) continue;
+    if (usage && example) continue;
+    targets.push({ index: i, word });
+  }
+  return targets;
+}
+
+async function generateQuestionTextWithProvider(provider, promptText) {
+  if (provider === 'qwen') {
+    const dashscopeKey = process.env.DASHSCOPE_API_KEY;
+    if (!dashscopeKey) throw new Error('DASHSCOPE_API_KEYが設定されていません。');
+    const qwenRes = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${dashscopeKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'qwen-plus',
+        messages: [{ role: 'user', content: promptText }]
+      })
+    });
+    if (!qwenRes.ok) {
+      const errText = await qwenRes.text();
+      throw new Error(`Qwen API Error (${qwenRes.status}): ${errText}`);
+    }
+    const data = await qwenRes.json();
+    return String(data.choices?.[0]?.message?.content || '');
+  }
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-flash',
+    contents: promptText,
+  });
+  return String(response.text || '');
+}
+
+async function generateMissingDistractorsOnce({ provider, word, context, needed, forbiddenSet }) {
+  if (needed <= 0) return { choices: [], others: [] };
+  const prompt = [
+    'あなたは日本語クイズ作成補助です。',
+    `正解語: ${String(word || '').trim()}`,
+    `不足している不正解候補数: ${needed}`,
+    `使用禁止語: ${Array.from(forbiddenSet).join(' / ') || '(なし)'}`,
+    '',
+    '次を満たすJSONのみを返してください。',
+    '- choices: 不正解語の配列（ちょうど不足数、全て異なる、使用禁止語を含めない）',
+    '- others: choicesと同順で usage/example を返す',
+    '',
+    `Context: ${JSON.stringify(context || {}, null, 2)}`,
+    '',
+    '出力例:',
+    '{"choices":["語1","語2"],"others":[{"usage":"...","example":"..."},{"usage":"...","example":"..."}]}'
+  ].join('\n');
+
+  try {
+    const text = await generateQuestionTextWithProvider(provider, prompt);
+    const parsed = JSON.parse(stripCodeFenceJson(text));
+    const rawChoices = Array.isArray(parsed?.choices) ? parsed.choices : [];
+    const rawOthers = Array.isArray(parsed?.others) ? parsed.others : [];
+    const choices = [];
+    const others = [];
+    const blocked = new Set(Array.from(forbiddenSet));
+    for (let i = 0; i < rawChoices.length; i += 1) {
+      const candidate = String(rawChoices[i] || '').trim();
+      if (!candidate || blocked.has(candidate)) continue;
+      blocked.add(candidate);
+      choices.push(candidate);
+      const o = rawOthers[i] || {};
+      others.push({
+        usage: String(o.usage || '').trim(),
+        example: String(o.example || '').trim()
+      });
+      if (choices.length >= needed) break;
+    }
+    return { choices, others };
+  } catch (_error) {
+    return { choices: [], others: [] };
+  }
+}
+
+async function generateMissingDistractors({ provider, word, context, needed, forbiddenSet }) {
+  if (needed <= 0) return { choices: [], others: [] };
+  const primary = provider === 'qwen' ? 'qwen' : 'gemini';
+  const secondary = primary === 'qwen' ? 'gemini' : 'qwen';
+  const result = { choices: [], others: [] };
+  const blocked = new Set(Array.from(forbiddenSet));
+  const providerOrder = [primary, secondary, primary];
+
+  for (const activeProvider of providerOrder) {
+    const remain = needed - result.choices.length;
+    if (remain <= 0) break;
+    const partial = await generateMissingDistractorsOnce({
+      provider: activeProvider,
+      word,
+      context,
+      needed: remain,
+      forbiddenSet: blocked
+    });
+    for (let i = 0; i < partial.choices.length; i += 1) {
+      const candidate = String(partial.choices[i] || '').trim();
+      if (!candidate || blocked.has(candidate)) continue;
+      blocked.add(candidate);
+      result.choices.push(candidate);
+      const o = partial.others[i] || {};
+      result.others.push({
+        usage: String(o.usage || '').trim(),
+        example: String(o.example || '').trim()
+      });
+      if (result.choices.length >= needed) break;
+    }
+  }
+  return result;
+}
+
+async function generateMissingOthers({ provider, context, answerWord }) {
+  const targets = buildMissingOthersTargets(context);
+  if (!targets.length) return [];
+  const primary = provider === 'qwen' ? 'qwen' : 'gemini';
+  const secondary = primary === 'qwen' ? 'gemini' : 'qwen';
+  const providerOrder = [primary, secondary, primary];
+  const filled = new Map();
+
+  for (const activeProvider of providerOrder) {
+    const remainTargets = targets.filter((t) => {
+      const existing = filled.get(t.index);
+      return !(existing?.usage && existing?.example);
+    });
+    if (!remainTargets.length) break;
+    const prompt = [
+      'あなたは日本語クイズ作成補助です。',
+      `正解語: ${String(answerWord || '').trim()}`,
+      '次の不正解語ごとに、使用場面(usage)と例文(example)を作ってください。',
+      '出力はJSONのみ。',
+      '',
+      `targets: ${JSON.stringify(remainTargets, null, 2)}`,
+      `context: ${JSON.stringify(context || {}, null, 2)}`,
+      '',
+      '出力形式:',
+      '{"others":[{"index":0,"usage":"...","example":"..."},{"index":1,"usage":"...","example":"..."}]}'
+    ].join('\n');
+    try {
+      const raw = await generateQuestionTextWithProvider(activeProvider, prompt);
+      const parsed = JSON.parse(stripCodeFenceJson(raw));
+      const rows = Array.isArray(parsed?.others) ? parsed.others : [];
+      for (const row of rows) {
+        const idx = Number(row?.index);
+        if (!Number.isInteger(idx) || idx < 0 || idx > 1) continue;
+        const usage = String(row?.usage || '').trim();
+        const example = String(row?.example || '').trim();
+        if (!usage && !example) continue;
+        const prev = filled.get(idx) || { index: idx, usage: '', example: '' };
+        filled.set(idx, {
+          index: idx,
+          usage: prev.usage || usage,
+          example: prev.example || example
+        });
+      }
+    } catch (_error) {
+      // keep best effort
+    }
+  }
+  return Array.from(filled.values());
 }
 
 function normalizeImagePathFromUrl(imageUrl) {
@@ -1333,7 +1622,7 @@ app.post('/api/prompt-configs/:type/reset', requireAdminAuth, async (req, res) =
   }
 });
 
-app.post('/api/generate-question', requireAdminAuth, aiRateLimiter, async (req, res) => {
+app.post('/api/generate-question', requireAdminAuth, questionAiRateLimiter, async (req, res) => {
   try {
     const word = String(req.body?.word || '').trim();
     const context = req.body?.context || {};
@@ -1344,46 +1633,74 @@ app.post('/api/generate-question', requireAdminAuth, aiRateLimiter, async (req, 
 
     const promptText = await buildQuestionSystemPrompt({ word, context });
 
-    let text = '';
     const provider = req.body?.provider || 'gemini';
-
-    if (provider === 'qwen') {
-      const dashscopeKey = process.env.DASHSCOPE_API_KEY;
-      if (!dashscopeKey) throw new Error('DASHSCOPE_API_KEYが設定されていません。');
-
-      // Node.js 18+ built-in fetch
-      const qwenRes = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${dashscopeKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: 'qwen-plus',
-          messages: [{ role: 'user', content: promptText }]
-        })
-      });
-
-      if (!qwenRes.ok) {
-        const errText = await qwenRes.text();
-        throw new Error(`Qwen API Error (${qwenRes.status}): ${errText}`);
-      }
-      const data = await qwenRes.json();
-      text = data.choices?.[0]?.message?.content || '';
-
-    } else {
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: promptText,
-      });
-      text = response.text || '';
-    }
-
-    text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const text = stripCodeFenceJson(await generateQuestionTextWithProvider(provider, promptText));
 
     try {
       const generated = JSON.parse(text);
-      return res.status(200).json(generated);
+      const sanitized = sanitizeGeneratedQuestionOutput(generated, { word, context });
+      const missingCount = Math.max(0, getMissingIncorrectChoiceCount(context) - sanitized.choices.length);
+      if (missingCount > 0) {
+        const forbiddenSet = buildForbiddenChoiceSet({
+          word,
+          context,
+          generatedChoices: sanitized.choices
+        });
+        const supplemental = await generateMissingDistractors({
+          provider,
+          word,
+          context,
+          needed: missingCount,
+          forbiddenSet
+        });
+        for (let i = 0; i < supplemental.choices.length; i += 1) {
+          sanitized.choices.push(String(supplemental.choices[i] || '').trim());
+          const o = supplemental.others[i] || {};
+          sanitized.others.push({
+            usage: String(o.usage || '').trim(),
+            example: String(o.example || '').trim()
+          });
+        }
+      }
+      const currentOthers = Array.isArray(context?.others) ? context.others : [];
+      const needsOthersFill = [0, 1].some((i) => {
+        const item = currentOthers[i] || {};
+        const usage = String(item?.usage || '').trim();
+        const example = String(item?.example || '').trim();
+        return !usage || !example;
+      });
+      if (needsOthersFill) {
+        const generatedOthers = await generateMissingOthers({
+          provider,
+          context,
+          answerWord: word
+        });
+        if (generatedOthers.length) {
+          const mergedOthers = [{ usage: '', example: '' }, { usage: '', example: '' }];
+          for (let i = 0; i < 2; i += 1) {
+            const base = sanitized.others[i] || {};
+            mergedOthers[i] = {
+              usage: String(base.usage || '').trim(),
+              example: String(base.example || '').trim()
+            };
+          }
+          for (const row of generatedOthers) {
+            const idx = Number(row.index);
+            if (idx < 0 || idx > 1) continue;
+            if (!mergedOthers[idx].usage) mergedOthers[idx].usage = String(row.usage || '').trim();
+            if (!mergedOthers[idx].example) mergedOthers[idx].example = String(row.example || '').trim();
+          }
+          sanitized.others = mergedOthers;
+        }
+      }
+      const stillMissing = Math.max(0, getMissingIncorrectChoiceCount(context) - sanitized.choices.length);
+      if (stillMissing > 0) {
+        return res.status(200).json({
+          ...sanitized,
+          warning: `重複回避により不正解候補が${stillMissing}件不足しました。再生成してください。`
+        });
+      }
+      return res.status(200).json(sanitized);
     } catch (e) {
       console.error("Failed to parse Gemini response", text);
       return res.status(500).json({ message: 'AIの応答の解析に失敗しました。' });
@@ -1546,14 +1863,18 @@ async function hasReadableTextInImage(buffer) {
   }
 }
 
-app.post('/api/generate-image', requireAdminAuth, aiRateLimiter, async (req, res) => {
+app.post('/api/generate-image', requireAdminAuth, imageAiRateLimiter, async (req, res) => {
   try {
     const context = req.body?.context || {};
+    const provider = req.body?.provider || 'gemini';
     const textPrompt = await buildImageSystemPrompt(context);
     const currentImageBuffer = await loadReferenceImageBuffer(context?.currentImageUrl || '');
-    const sampleImageBuffer = await loadReferenceImageBuffer(context?.sampleImageUrl || '');
     const usingCurrentImage = Boolean(currentImageBuffer);
-    const usingSampleImage = !usingCurrentImage && Boolean(sampleImageBuffer);
+    const allowSampleReference = provider !== 'qwen';
+    const sampleImageBuffer = allowSampleReference && !usingCurrentImage
+      ? await loadReferenceImageBuffer(context?.sampleImageUrl || '')
+      : null;
+    const usingSampleImage = Boolean(sampleImageBuffer);
     const baseImageBuffer = currentImageBuffer || sampleImageBuffer || null;
     let imagePrompt = textPrompt;
     if (usingSampleImage) {
@@ -1565,7 +1886,6 @@ app.post('/api/generate-image', requireAdminAuth, aiRateLimiter, async (req, res
 - 場面内容は上記コンテキスト（場面説明・解説・重要語・追加要望）に忠実に描く。`;
     }
     imagePrompt = enforceImagePromptRules(imagePrompt, context);
-    const provider = req.body?.provider || 'gemini';
     let lastGeminiError = null;
     let bestCandidateBuffer = null;
     let bestCandidateReason = '';
@@ -1576,8 +1896,8 @@ app.post('/api/generate-image', requireAdminAuth, aiRateLimiter, async (req, res
         if (provider === 'qwen') {
           const dashscopeKey = process.env.DASHSCOPE_API_KEY;
           if (!dashscopeKey) throw new Error('DASHSCOPE_API_KEYが設定されていません。');
-          if (usingCurrentImage && baseImageBuffer) {
-            buffer = await generateImageBufferWithWanx(imagePrompt, dashscopeKey, baseImageBuffer);
+          if (usingCurrentImage && currentImageBuffer) {
+            buffer = await generateImageBufferWithWanx(imagePrompt, dashscopeKey, currentImageBuffer);
           } else {
             buffer = await generateImageBufferWithWanxText2Image(imagePrompt, dashscopeKey);
           }

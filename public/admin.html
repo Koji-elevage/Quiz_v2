@@ -30,7 +30,14 @@
         <section class="panel sheet-ui">
             <div class="sheet-row">
                 <div class="sheet-label">タイトル</div>
-                <div class="sheet-value"><input id="titleInput" type="text" placeholder="例: オノマトペ v2" /></div>
+                <div class="sheet-value">
+                    <div class="title-controls">
+                        <span id="titleWorkStatus" class="title-work-status editing">編集中</span>
+                        <button type="button" class="secondary" id="cancelEditBtn">新規作成</button>
+                        <span class="title-work-note">新規作成を押すと、現在編集中のタイトルと内容は破棄されます。</span>
+                    </div>
+                    <input id="titleInput" type="text" placeholder="例: オノマトペ v2" />
+                </div>
             </div>
             <div class="sheet-row">
                 <div class="sheet-label">問題入力（5問以上）</div>
@@ -95,7 +102,6 @@
                     </div>
                     <div class="actions admin-actions" style="margin-top: 10px">
                         <button type="button" class="secondary" id="addRowBtn">行を追加</button>
-                        <button type="button" class="secondary" id="cancelEditBtn" disabled>編集中の内容を破棄して新規作成</button>
                         <button type="button" class="secondary" id="backToLpBtn">編集を終了してホーム画面へ戻る</button>
                         <button type="button" id="saveQuizBtn">保存してQRを生成</button>
                     </div>

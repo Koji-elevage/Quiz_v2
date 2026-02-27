@@ -2,11 +2,10 @@ const loginBtn = document.getElementById('teacherGoogleLoginBtn');
 const statusEl = document.getElementById('teacherLoginStatus');
 const ownerChoiceSection = document.getElementById('ownerChoiceSection');
 const loginPanel = document.getElementById('loginPanel');
-const openReadmeBtn = document.getElementById('openReadmeBtn');
 const openTeacherManualBtn = document.getElementById('openTeacherManualBtn');
 const docModalOverlay = document.getElementById('docModalOverlay');
 const docModalTitle = document.getElementById('docModalTitle');
-const docModalContent = document.getElementById('docModalContent');
+const docModalFrame = document.getElementById('docModalFrame');
 const closeDocModalBtn = document.getElementById('closeDocModalBtn');
 
 const ADMIN_GOOGLE_TOKEN_KEY = 'adminGoogleIdToken';
@@ -58,16 +57,17 @@ async function exchangeGoogleTokenForSession(idToken) {
   return { appToken };
 }
 
-function openDocModal(title, content) {
-  if (!docModalOverlay || !docModalTitle || !docModalContent) return;
+function openDocModal(title, frameSrc) {
+  if (!docModalOverlay || !docModalTitle || !docModalFrame) return;
   docModalTitle.textContent = title;
-  docModalContent.textContent = content;
+  docModalFrame.src = frameSrc;
   docModalOverlay.classList.add('active');
 }
 
 function closeDocModal() {
   if (!docModalOverlay) return;
   docModalOverlay.classList.remove('active');
+  if (docModalFrame) docModalFrame.src = '';
 }
 
 async function waitForGoogleLibrary(maxWaitMs = 6000) {
@@ -90,23 +90,6 @@ async function fetchSession(token) {
   const data = text ? JSON.parse(text) : {};
   if (!res.ok) {
     throw new Error(data?.message || `認証に失敗しました (${res.status})`);
-  }
-  return data;
-}
-
-async function fetchDoc(key) {
-  const token = getGoogleToken();
-  if (!token) {
-    throw new Error('先にGoogleログインしてください。');
-  }
-  const res = await fetch(`/api/docs/${encodeURIComponent(key)}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: 'no-store'
-  });
-  const text = await res.text();
-  const data = text ? JSON.parse(text) : {};
-  if (!res.ok) {
-    throw new Error(data?.message || `ドキュメント取得に失敗しました (${res.status})`);
   }
   return data;
 }
@@ -200,24 +183,9 @@ async function init() {
   if (loginBtn) {
     loginBtn.addEventListener('click', startGoogleLogin);
   }
-  if (openReadmeBtn) {
-    openReadmeBtn.addEventListener('click', async () => {
-      try {
-        const doc = await fetchDoc('readme');
-        openDocModal(doc.title || 'README.md', doc.content || '');
-      } catch (error) {
-        setStatus(error.message, true);
-      }
-    });
-  }
   if (openTeacherManualBtn) {
-    openTeacherManualBtn.addEventListener('click', async () => {
-      try {
-        const doc = await fetchDoc('teacher_manual');
-        openDocModal(doc.title || '教師向け簡易マニュアル.md', doc.content || '');
-      } catch (error) {
-        setStatus(error.message, true);
-      }
+    openTeacherManualBtn.addEventListener('click', () => {
+      openDocModal('教師向け簡易マニュアル', '/teacher-manual-v2');
     });
   }
   if (closeDocModalBtn) {

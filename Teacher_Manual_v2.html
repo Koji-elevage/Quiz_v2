@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>日本語クイズ v2 - 教師・管理者向け運用マニュアル</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap"
+        rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', 'Noto Sans JP', sans-serif;
+            background-color: #f8fafc;
+            color: #334155;
+            line-height: 1.6;
+        }
+
+        .prose img {
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            margin-top: 2rem;
+            margin-bottom: 2rem;
+            border: 1px solid #e2e8f0;
+        }
+
+        .prose h2 {
+            display: flex;
+            align-items: center;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #0f172a;
+            margin-top: 3rem;
+            margin-bottom: 1.5rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .prose h3 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #1e293b;
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+        }
+
+        .step-number {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 1.5rem;
+            height: 1.5rem;
+            background-color: #3b82f6;
+            color: white;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: bold;
+            margin-right: 0.5rem;
+        }
+
+        .callout {
+            border-left: 4px solid;
+            padding: 1rem 1.25rem;
+            margin: 1.5rem 0;
+            border-radius: 0 0.5rem 0.5rem 0;
+            background-color: #f1f5f9;
+        }
+
+        .callout-info {
+            border-color: #3b82f6;
+            background-color: #eff6ff;
+        }
+
+        .callout-warning {
+            border-color: #ef4444;
+            background-color: #fef2f2;
+        }
+
+        .callout-tip {
+            border-color: #10b981;
+            background-color: #ecfdf5;
+        }
+    </style>
+</head>
+
+<body class="antialiased">
+
+    <div class="max-w-4xl mx-auto px-4 py-8 sm:py-12">
+        <!-- Header -->
+        <header class="text-center mb-12">
+            <h1 class="text-3xl sm:text-4xl font-bold text-slate-900 mb-4 tracking-tight">日本語クイズ v2<br><span
+                    class="text-2xl sm:text-3xl text-blue-600">教師・管理者向け運用マニュアル</span></h1>
+            <p class="text-slate-500">最終更新日: 2026年2月27日</p>
+        </header>
+
+        <main class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-10 prose prose-slate max-w-none">
+            <p class="text-lg mb-8">本ドキュメントは、日本語クイズ v2
+                を利用してクイズを作成・配布・管理する教師（Teacher）およびシステム管理者（Admin）向けの操作説明書です。画面操作の流れを動画と図解で解説します。</p>
+
+            <!-- Section 1 -->
+            <h2>
+                <span class="step-number">1</span>アカウント権限について
+            </h2>
+            <div class="overflow-x-auto mb-6">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-slate-50 border-b border-slate-200">
+                            <th class="p-3 font-semibold text-slate-900">権限種別</th>
+                            <th class="p-3 font-semibold text-slate-900">役割説明</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200">
+                        <tr>
+                            <td class="p-3 font-medium text-slate-800"><span
+                                    class="bg-purple-100 text-purple-800 text-xs px-2 py-1 rounded-full mr-2">Admin</span>(=
+                                Owner)</td>
+                            <td class="p-3">ユーザー管理権限（Teacherの追加・削除）、システム全体の設定</td>
+                        </tr>
+                        <tr>
+                            <td class="p-3 font-medium text-slate-800"><span
+                                    class="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full mr-2">Teacher</span>(=
+                                User)</td>
+                            <td class="p-3">クイズの作成、編集、削除、学習者への配布</td>
+                        </tr>
+                        <tr>
+                            <td class="p-3 font-medium text-slate-800"><span
+                                    class="bg-emerald-100 text-emerald-800 text-xs px-2 py-1 rounded-full mr-2">Student</span>
+                            </td>
+                            <td class="p-3">クイズの受験のみ（ログイン不要）</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="callout callout-info">
+                <strong>📝 Note:</strong> 管理画面へのアクセスは Googleアカウント によるログインが必要です。Teacherアカウントの追加は Admin アカウントからのみ可能です。
+            </div>
+
+            <!-- Section 2 -->
+            <h2>
+                <span class="step-number">2</span>教師画面へのログイン方法
+            </h2>
+            <ol class="space-y-3 list-decimal list-inside ml-2">
+                <li>トップページの <strong>「Teacher / User・Admin / Ownerはこちら」</strong> ボタンをクリックします。</li>
+                <li>アカウントとして登録されているGoogleアカウントを選択し、ログインします。（通常 <code>/teacher-login</code> を経由）</li>
+                <li>Teacherは自分のダッシュボード（管理画面）へ、Adminは「Teacher画面」または「Admin管理画面」を選択して遷移します。</li>
+            </ol>
+            <div class="callout callout-warning mt-4">
+                <strong>⚠️ Important:</strong>
+                「Google認証の設定が未完了です」というエラーが出た場合は、管理者が許可したGoogleアカウントではない可能性があります。システム管理者にお問い合わせください。
+            </div>
+
+            <!-- Section 3 -->
+            <h2>
+                <span class="step-number">3</span>クイズの作成とQRコード配布の流れ
+            </h2>
+            <p>学習者向けのクイズ作成は、管理画面から1ページで行うことができます。</p>
+
+            <figure class="my-8">
+                <img src="docs/images/teacher_flow.webp" alt="クイズ作成の流れ" class="w-full">
+                <figcaption class="text-center text-sm text-slate-500 mt-2">▶ 動画: ダッシュボードでのクイズ作成からQRコード生成までの一連の流れ
+                </figcaption>
+            </figure>
+
+            <h3>🖋️ クイズ入力手順</h3>
+
+            <figure class="my-8">
+                <img src="docs/images/teacher_dashboard.png" alt="教師画面ダッシュボード" class="w-full">
+                <figcaption class="text-center text-sm text-slate-500 mt-2">図1: クイズ作成画面（5問以上の入力が必要です）</figcaption>
+            </figure>
+
+            <ol class="space-y-4 list-decimal list-inside ml-2">
+                <li><strong>画面を開く</strong>: 管理画面の上部にある <strong>「＋新規作成」</strong> ボタンを押します。</li>
+                <li><strong>タイトル入力</strong>: 今回作成するクイズのタイトルを入力します。</li>
+                <li><strong>設問の作成</strong>: 最低5問以上の問題を入力します。各問題には以下の入力が必須です。
+                    <ul class="list-disc list-inside ml-8 mt-2 space-y-1 text-slate-600">
+                        <li>『穴埋め文 / 設問の内容』</li>
+                        <li>『正解となる選択肢1』</li>
+                        <li>『誤答となる選択肢2、選択肢3』</li>
+                        <li>『解説』</li>
+                    </ul>
+                </li>
+                <li><strong>QRコード生成</strong>: 全ての入力が終わったら、画面最下部にある <strong
+                        class="bg-slate-100 px-2 py-1 rounded border border-slate-300">保存してQRを生成</strong> をクリックします。</li>
+            </ol>
+
+            <div class="callout callout-tip mt-6">
+                <strong>✨ TIPS: AI自動生成の活用</strong><br>
+                「正解」となる選択肢（選択肢1）だけを入力し、<strong>「AI自動作成」</strong>ボタンを押すと、例文や誤答選択肢、解説をAIが自動で考えて埋めてくれます。クイズ作成の大幅な時短になります。
+            </div>
+
+            <h3 class="mt-10">📲 配布方法</h3>
+            <p>保存が完了すると、画面の「保存結果」エリアに <strong>学習者専用のURL</strong> と <strong>QRコード</strong>
+                が表示されます。<br>このQRコードやURLをスクリーンに映すか、チャット等で学習者へ送信して受講を促してください。</p>
+
+            <!-- Section 4 -->
+            <h2 class="mt-12">
+                <span class="step-number">4</span>学習者（Student）の受講フロー
+            </h2>
+            <p>学習者がQRコードを読み取った後の、実際の受講フローです。</p>
+
+            <figure class="my-8">
+                <img src="docs/images/student_flow.webp" alt="学習者の回答フロー" class="w-full">
+                <figcaption class="text-center text-sm text-slate-500 mt-2">▶ 動画: 学習者が名前を入力し、クイズに解答するまでの流れ</figcaption>
+            </figure>
+
+            <ol class="space-y-3 list-decimal list-inside ml-2">
+                <li><strong>アクセス</strong>: 学習者がQRコード（または専用URL）を読み取ると、クイズのトップ画面が開きます。</li>
+                <li><strong>氏名入力</strong>: 「お名前（ニックネーム）」を入力し、<strong class="text-blue-600">「▶️ クイズを始める」</strong>
+                    をタップします。</li>
+                <li><strong>クイズ解答</strong>: 問題が順番に表示されますので、正解と思う選択肢を選び <strong class="text-emerald-600">「▶️
+                        次の問題へ」</strong> を進めます。</li>
+                <li><strong>結果発表</strong>: 全問解答し終わるとスコア結果画面が表示されます。</li>
+            </ol>
+
+            <figure class="my-8">
+                <img src="docs/images/quiz_results.png" alt="クイズ結果画面" class="w-full">
+                <figcaption class="text-center text-sm text-slate-500 mt-2">図2: 学習者のクイズスコア結果画面・解説の確認</figcaption>
+            </figure>
+
+            <!-- Section 5: Advanced Features -->
+            <h2 class="mt-12">
+                <span class="step-number">5</span>アプリケーションの高度な機能（画像・再利用・ログ）
+            </h2>
+
+            <h3 class="mt-8">🖼️ 画像の生成とアップロード機能</h3>
+            <p>各設問に対して、AIを用いた画像生成やお手持ちの画像のアップロードが可能です。</p>
+
+            <figure class="my-6">
+                <img src="docs/images/image_column_buttons.png" alt="画像管理ボタン"
+                    class="w-full border rounded-lg shadow-sm">
+                <figcaption class="text-center text-sm text-slate-500 mt-2">図3: 各問題行の右端にある「AI生成」「UP」ボタン</figcaption>
+            </figure>
+
+            <ol class="space-y-3 list-decimal list-inside ml-2 mt-4">
+                <li><strong>AIで画像を生成する</strong>:
+                    <ul class="list-disc list-inside ml-8 mt-2 space-y-1 text-slate-600">
+                        <li>対象の行で <span
+                                class="bg-slate-100 px-2 py-0.5 rounded text-sm border border-slate-300">AI生成</span>
+                            ボタンをクリックします。</li>
+                        <li>現在の設問（穴埋め文や正解）を元に、自動で画像が生成されます。</li>
+                        <li class="text-sm italic">※ すでに画像がある場合は、プロンプト入力画面が表示され、「猫を白猫にして」などの追加の要望を指定して再生成できます。</li>
+                    </ul>
+                </li>
+                <li><strong>画像をアップロードする</strong>:
+                    <ul class="list-disc list-inside ml-8 mt-2 space-y-1 text-slate-600">
+                        <li>対象の行で <span
+                                class="bg-slate-100 px-2 py-0.5 rounded text-sm border border-slate-300">UP</span>
+                            ボタンをクリックし、パソコンやスマホ内の画像を選択します。</li>
+                        <li class="text-sm"><strong>画像サイズとアスペクト比</strong>: アップロードされた画像は自動的に <strong>4:3 の比率</strong>
+                            にトリミング（またはリサイズ）されます。あらかじめ 4:3 に近い画像をご用意いただくと綺麗に表示されます（一般的な画像フォーマット PNG, JPEG 等に対応）。</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <h3 class="mt-10">🔄 過去に作成したクイズの再利用</h3>
+            <p>過去に作成したクイズは、ダッシュボード下部の <strong>「作成済みクイズ（教師）」</strong> リストに一覧表示されます。</p>
+
+            <figure class="my-6">
+                <img src="docs/images/created_quizzes_section.png" alt="作成済みクイズリスト"
+                    class="w-full border rounded-lg shadow-sm">
+                <figcaption class="text-center text-sm text-slate-500 mt-2">図4: ダッシュボード下部の作成済みクイズ一覧</figcaption>
+            </figure>
+
+            <ul class="space-y-2 list-disc list-inside ml-2 mt-4 text-slate-700">
+                <li><strong>再編集・使い回し</strong>: リスト内の <span class="text-blue-600 font-semibold px-1">編集</span>
+                    ボタンを押すと、過去のクイズデータが入力フォームに展開されます。タイトルや設問を少し変更して新しいクイズとして使い回す（別QRコードにする）ことが簡単にできます。</li>
+                <li class="text-sm italic text-slate-500">※「新規作成」ボタンを押すことで、現在編集中の状態をリセットし、フォームを白紙に戻すことができます。</li>
+            </ul>
+
+            <h3 class="mt-10">📊 学習者アクセスログの確認</h3>
+            <p>過去のクイズの「作成済みクイズ（教師）」リストから、各クイズの参加状況を確認できます。</p>
+
+            <figure class="my-6">
+                <img src="docs/images/learner_access_log_modal.png" alt="アクセスログ画面"
+                    class="w-full border rounded-lg shadow-sm">
+                <figcaption class="text-center text-sm text-slate-500 mt-2">図5: 学習者アクセスログの確認画面</figcaption>
+            </figure>
+
+            <ul class="space-y-3 list-disc list-inside ml-2 mt-4 text-slate-700">
+                <li><strong>操作方法</strong>: 各クイズ行にある <span
+                        class="text-emerald-600 font-semibold px-1">ログ</span>（学習者アクセスログ）ボタンをクリックします。</li>
+                <li><strong>確認できる内容</strong>: そのクイズにアクセスした学習者の情報が一覧表示されます。
+                    <ol class="list-decimal list-inside ml-8 mt-2 space-y-1 text-slate-600">
+                        <li><strong>学習者名</strong> (ニックネーム)</li>
+                        <li><strong>プレイ回数</strong> (何度そのクイズに挑戦したか)</li>
+                        <li><strong>最終スコア</strong> (最後に受けた際の点数)</li>
+                        <li><strong>最終プレイ日時</strong></li>
+                    </ol>
+                </li>
+            </ul>
+
+            <!-- Section 6 -->
+            <h2 class="mt-12">
+                <span class="step-number">6</span>よくあるトラブルシューティング
+            </h2>
+
+            <div class="space-y-6">
+                <div class="bg-slate-50 rounded-lg p-5 border border-slate-100">
+                    <h4 class="font-bold flex items-start text-slate-800">
+                        <span class="text-blue-500 mr-2 text-xl leading-none">Q.</span>
+                        学習者がクイズを開始できません。
+                    </h4>
+                    <div class="mt-2 flex items-start text-slate-600">
+                        <span class="text-emerald-500 font-bold mr-2 text-xl leading-none">A.</span>
+                        <p class="m-0">
+                            学習者が、直接アプリのトップページURL（ルートURL）にアクセスしている可能性があります。学習者は必ず<strong>教師が生成したQRコードや専用クイズURL（<code>/quiz/xxxxxx</code>）</strong>
+                            からアクセスする必要があります。</p>
+                    </div>
+                </div>
+
+                <div class="bg-slate-50 rounded-lg p-5 border border-slate-100">
+                    <h4 class="font-bold flex items-start text-slate-800">
+                        <span class="text-blue-500 mr-2 text-xl leading-none">Q.</span>
+                        クイズ情報をExcelから一括でコピーしたいです。
+                    </h4>
+                    <div class="mt-2 flex items-start text-slate-600">
+                        <span class="text-emerald-500 font-bold mr-2 text-xl leading-none">A.</span>
+                        <p class="m-0">スプレッドシート等で表を作っておき、複数セルをコピーして、入力画面のセルにそのまま貼り付ける（ペースト）ことが可能です。</p>
+                    </div>
+                </div>
+
+                <div class="bg-slate-50 rounded-lg p-5 border border-slate-100">
+                    <h4 class="font-bold flex items-start text-slate-800">
+                        <span class="text-blue-500 mr-2 text-xl leading-none">Q.</span>
+                        AIの画像生成・設問生成結果があまり良くないです。
+                    </h4>
+                    <div class="mt-2 flex items-start text-slate-600">
+                        <span class="text-emerald-500 font-bold mr-2 text-xl leading-none">A.</span>
+                        <p class="m-0">管理画面下部にある <strong>「AI設定」</strong>
+                            セクションにて、AIへ送る「システムプロンプト」を直接編集できます。ここで要望を細かく指定して保存すると、次回のAI生成から即座に反映されます。</p>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+
+        <footer class="mt-12 text-center text-slate-400 text-sm pb-8">
+            &copy; 2026 日本語クイズ v2. All rights reserved.
+        </footer>
+    </div>
+
+</body>
+
+</html>

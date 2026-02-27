@@ -31,7 +31,6 @@
         </div>
         <p class="lpv2-help" style="margin-top: 12px;">ドキュメント確認（画面遷移なし）</p>
         <div class="lpv2-owner-actions">
-          <button id="openReadmeBtn" type="button" class="lpv2-admin-link">README.mdを表示</button>
           <button id="openTeacherManualBtn" type="button" class="lpv2-admin-link">教師向け簡易マニュアルを表示</button>
         </div>
       </section>
@@ -40,8 +39,13 @@
   <div id="docModalOverlay" class="modal-overlay">
     <div class="prompt-modal-content" style="max-width: 920px; width: 92vw;">
       <h3 id="docModalTitle">ドキュメント</h3>
-      <div style="max-height: 62vh; overflow: auto; border: 1px solid #d1d5db; border-radius: 8px; background: #fff;">
-        <pre id="docModalContent" style="margin: 0; padding: 14px; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.5;"></pre>
+      <div style="height: 62vh; overflow: hidden; border: 1px solid #d1d5db; border-radius: 8px; background: #fff;">
+        <iframe
+          id="docModalFrame"
+          title="教師向け簡易マニュアル"
+          src=""
+          style="width: 100%; height: 100%; border: 0; background: #fff;"
+        ></iframe>
       </div>
       <div class="prompt-modal-actions">
         <button type="button" id="closeDocModalBtn" class="secondary">閉じる</button>
