@@ -27,6 +27,7 @@ const ADMIN_DRAFT_KEY = 'adminDraftV1';
 const DEFAULT_FORM_MESSAGE = '5問以上入力して保存してください。';
 const LOGIN_WAIT_MESSAGE = 'Googleログイン後にクイズ一覧を読み込みます。';
 const DRAFT_SAVE_DEBOUNCE_MS = 1200;
+const SAMPLE_IMAGE_URL = '/images/gen/sample_cleaned.png';
 const PASTE_COLUMNS = [
     'prompt',
     'sentence',
@@ -57,6 +58,22 @@ function sanitizeImageUrl(value) {
     if (url.startsWith('/images/gen/')) return url;
     if (/^https?:\/\//i.test(url)) return url;
     return '';
+}
+
+function attachBrokenImageFallback(row, previewImg, hiddenUrlInput) {
+    if (!previewImg || !hiddenUrlInput) return;
+    previewImg.addEventListener('error', () => {
+        if (previewImg.dataset.fallbackApplied === '1') return;
+        previewImg.dataset.fallbackApplied = '1';
+        hiddenUrlInput.value = '';
+        previewImg.src = SAMPLE_IMAGE_URL;
+        clearRowPreviousAiImage(row);
+        if (state.imageModal?.row === row) {
+            updateImageModalRestoreButton();
+        }
+        hiddenUrlInput.dispatchEvent(new Event('change', { bubbles: true }));
+        setMessage('表示できない画像を検出したため、サンプル画像に切り替えました。必要ならAI生成またはUPで再設定してください。', 'notice');
+    });
 }
 
 function getAdminToken() {
@@ -547,7 +564,7 @@ function createQuestionRow(index, question = null) {
     const o0ExampleValue = escapeHtml(others[0]?.example || '');
     const o1UsageValue = escapeHtml(others[1]?.usage || '');
     const o1ExampleValue = escapeHtml(others[1]?.example || '');
-    const safeImageUrl = sanitizeImageUrl(question?.imageUrl) || '/images/gen/sample_cleaned.png';
+    const safeImageUrl = sanitizeImageUrl(question?.imageUrl) || SAMPLE_IMAGE_URL;
     const hiddenImageUrl = sanitizeImageUrl(question?.imageUrl);
 
     row.innerHTML = `
@@ -627,10 +644,11 @@ function createQuestionRow(index, question = null) {
     const previewImg = row.querySelector('.image-preview');
     const hiddenUrlInput = row.querySelector('.imageUrl');
     const clearBtn = row.querySelector('.clear-image-btn');
+    attachBrokenImageFallback(row, previewImg, hiddenUrlInput);
 
     const clearImage = () => {
         hiddenUrlInput.value = '';
-        previewImg.src = '/images/gen/sample_cleaned.png';
+        previewImg.src = SAMPLE_IMAGE_URL;
         clearRowPreviousAiImage(row);
         if (state.imageModal?.row === row) {
             updateImageModalRestoreButton();

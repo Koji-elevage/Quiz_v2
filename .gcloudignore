@@ -1,0 +1,11 @@
+.gcloudignore
+.git
+.gitignore
+
+node_modules/
+.env*
+database.sqlite
+db/
+.DS_Store
+.shots/
+test-results/
