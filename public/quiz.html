@@ -36,7 +36,7 @@
                     <div class="hero-title" id="heroTitle">穴埋め問題でマスター！</div>
                     <div class="hero-subtitle">例文で使い方を自然に覚えよう</div>
                     <div class="name-input-group">
-                        <label for="learnerName">あなたのお名前は？</label>
+                        <label for="learnerName">学習者名を入力してください</label>
                         <input type="text" id="learnerName" placeholder="例: こうじ" maxlength="24">
                         <p id="nameAlert" class="error-msg" style="display: none;">名前を入力してください</p>
                     </div>
@@ -70,7 +70,7 @@
         <!-- Screen 2: Quiz -->
         <div class="screen" id="quizScreen">
             <div class="quiz-header">
-                <button class="back-btn" onclick="goToScreen('homeScreen')">←</button>
+                <button class="back-btn" onclick="goBackScreen('homeScreen')">←</button>
                 <div class="quiz-progress" id="quizProgress">Q1/10</div>
                 <div class="quiz-timer">⏱️ <span id="timer">00:30</span></div>
             </div>
@@ -110,7 +110,7 @@
         <!-- Screen 3: Feedback -->
         <div class="screen" id="feedbackScreen">
             <div class="quiz-header">
-                <button class="back-btn" onclick="goToScreen('quizScreen')">←</button>
+                <button class="back-btn" onclick="goBackScreen('quizScreen')">←</button>
                 <div class="quiz-progress" id="feedbackProgress">Q1/10</div>
                 <div class="quiz-timer"></div>
             </div>
@@ -177,7 +177,7 @@
         <!-- Screen 4: Results -->
         <div class="screen" id="resultsScreen">
             <div class="quiz-header">
-                <button class="back-btn" onclick="goToScreen('homeScreen')">←</button>
+                <button class="back-btn" onclick="goBackScreen('homeScreen')">←</button>
                 <div class="quiz-progress">結果</div>
                 <div class="quiz-timer"></div>
             </div>
@@ -209,16 +209,21 @@
                     </div>
                 </div>
 
-                <button class="primary-btn" onclick="startQuiz()" style="margin-bottom: 10px;">
-                    🔄 もう一度挑戦
-                </button>
-                <button class="mission-cta" onclick="goToScreen('homeScreen')" style="width: 100%;">
-                    🏠 ホームに戻る
-                </button>
+                <div class="results-action-row">
+                    <button class="results-action-btn results-action-primary" type="button" onclick="startQuiz()">
+                        🔄 もう一度挑戦
+                    </button>
+                    <button class="results-action-btn results-action-secondary" type="button" onclick="goToScreen('homeScreen')">
+                        🏠 ホームへ戻る
+                    </button>
+                    <button class="results-action-btn results-action-danger" type="button" onclick="endQuizSession()">
+                        ⏹️ 終了
+                    </button>
+                </div>
             </div>
 
             <div class="tab-bar">
-                <div class="tab-item" onclick="goToScreen('homeScreen')">
+                <div class="tab-item">
                     <div class="tab-icon">🏠</div>
                     <div class="tab-label">ホーム</div>
                 </div>
@@ -237,6 +242,21 @@
             </div>
         </div>
 
+        <!-- Screen 5: End Session -->
+        <div class="screen" id="endScreen">
+            <div class="quiz-header">
+                <button class="back-btn" onclick="goToScreen('homeScreen')">←</button>
+                <div class="quiz-progress">終了</div>
+                <div class="quiz-timer"></div>
+            </div>
+            <div class="results-content end-session-content">
+                <div class="results-emoji">🌙</div>
+                <div class="results-title">また明日も頑張りましょう！</div>
+                <div class="results-subtitle">学習セッションを終了しました。</div>
+                <button class="primary-btn" type="button" onclick="goToScreen('homeScreen')">🏠 ホームへ戻る</button>
+            </div>
+        </div>
+
         <!-- Navigation Dots -->
         <div class="nav-dots">
             <div class="nav-dot active" onclick="goToScreen('homeScreen')"></div>
@@ -244,6 +264,7 @@
             <div class="nav-dot" onclick="goToScreen('feedbackScreen')"></div>
             <div class="nav-dot" onclick="goToScreen('resultsScreen')"></div>
         </div>
+        <div id="underConstructionToast" class="under-construction-toast" role="status" aria-live="polite">工事中</div>
     </div>
     <script src="/quiz.js"></script>
 </body>

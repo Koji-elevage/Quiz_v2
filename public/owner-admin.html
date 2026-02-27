@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>管理者画面</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="sample-lp-page ui-v2">
+  <main class="lpv2-shell">
+    <section class="lpv2-card">
+      <h1 class="lpv2-title">管理者画面</h1>
+      <p class="lpv2-subtitle">教師アカウントの追加・削除を行います。</p>
+
+      <section class="lpv2-guide lpv2-owner">
+        <p id="ownerStatus" class="lpv2-help">認証確認中...</p>
+        <div class="lpv2-owner-form">
+          <label for="teacherEmailInput" class="lpv2-label">追加する教師メール</label>
+          <input id="teacherEmailInput" class="lpv2-input" type="email" placeholder="teacher@example.com" />
+          <button id="addTeacherBtn" class="lpv2-start-btn" type="button">教師を追加</button>
+        </div>
+        <div class="lpv2-owner-list-wrap">
+          <p class="lpv2-guide-title">権限一覧（管理者 / 教師）</p>
+          <ul id="adminUsersList" class="lpv2-admin-users"></ul>
+        </div>
+        <div class="lpv2-owner-actions">
+          <a href="/admin" class="lpv2-start-btn">教師画面へ移動</a>
+          <button type="button" id="backToPreviousBtn" class="lpv2-admin-link">前画面に戻る</button>
+        </div>
+      </section>
+    </section>
+  </main>
+  <script src="/owner-admin.js"></script>
+</body>
+</html>

@@ -110,6 +110,8 @@ window.addEventListener('popstate', (e) => {
             showFeedback(currentIsCorrect, false);
         } else if (targetScreen === 'resultsScreen') {
             showResults(false);
+        } else if (targetScreen === 'endScreen') {
+            goToScreen('endScreen', false);
         } else {
             goToScreen('homeScreen', false);
         }
@@ -150,11 +152,24 @@ function goToScreen(screenId, pushToHistory = true) {
     const screenOrder = ['homeScreen', 'quizScreen', 'feedbackScreen', 'resultsScreen'];
     const screenIndex = screenOrder.indexOf(screenId);
 
-    document.querySelectorAll('.nav-dot').forEach((dot, index) => {
-        dot.classList.toggle('active', index === screenIndex);
-    });
+    const navDots = document.querySelectorAll('.nav-dot');
+    if (screenId === 'endScreen') {
+        navDots.forEach((dot) => dot.classList.remove('active'));
+        document.getElementById('screenIndicator').textContent = '終了';
+    } else {
+        navDots.forEach((dot, index) => {
+            dot.classList.toggle('active', index === screenIndex);
+        });
+        document.getElementById('screenIndicator').textContent = `${screenIndex + 1}/4`;
+    }
+}
 
-    document.getElementById('screenIndicator').textContent = `${screenIndex + 1}/4`;
+window.goBackScreen = function (fallbackScreenId = 'homeScreen') {
+    if (window.history.length > 1) {
+        window.history.back();
+        return;
+    }
+    goToScreen(fallbackScreenId, false);
 }
 
 function startQuizWithValidation() {
@@ -438,6 +453,35 @@ window.replayQuestion = function (questionId) {
     loadQuestionUI();
 }
 
+window.endQuizSession = function () {
+    if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+    }
+    const nameInput = document.getElementById('learnerName');
+    if (nameInput) {
+        const currentName = String(nameInput.value || '').trim();
+        if (currentName) {
+            localStorage.setItem('learnerName', currentName);
+        }
+    }
+    const alertMsg = document.getElementById('nameAlert');
+    if (alertMsg) {
+        alertMsg.style.display = 'none';
+    }
+
+    queue = [];
+    solvedCount = 0;
+    currentQuestion = null;
+    userAnswers = [];
+    totalAttempts = 0;
+    isReplayMode = false;
+    currentIsCorrect = null;
+
+    goToScreen('endScreen', false);
+    history.replaceState({ screenId: 'endScreen', qIndex: 0 }, '', '');
+}
+
 function createConfetti() {
     const colors = ['#2ECC71', '#F39C12', '#E74C3C', '#4A90E2', '#9B59B6', '#F1C40F'];
 
@@ -455,11 +499,31 @@ function createConfetti() {
     }
 }
 
+function showToast(message, durationMs = 1500) {
+    const toast = document.getElementById('underConstructionToast');
+    if (!toast) return;
+    toast.textContent = String(message || '');
+    toast.classList.remove('show');
+    if (showToast._timer) {
+        clearTimeout(showToast._timer);
+    }
+    requestAnimationFrame(() => {
+        toast.classList.add('show');
+    });
+    showToast._timer = setTimeout(() => {
+        toast.classList.remove('show');
+        showToast._timer = null;
+    }, durationMs);
+}
+
+function showUnderConstruction() {
+    showToast('工事中', 1500);
+}
+
 // Initialize
-document.querySelectorAll('.tab-item').forEach(tab => {
-    tab.addEventListener('click', function () {
-        const parent = this.parentElement;
-        parent.querySelectorAll('.tab-item').forEach(t => t.classList.remove('active'));
-        this.classList.add('active');
+document.querySelectorAll('.tab-bar .tab-item').forEach((tab) => {
+    tab.addEventListener('click', (event) => {
+        event.preventDefault();
+        showUnderConstruction();
     });
 });

@@ -9,17 +9,104 @@ const multer = require('multer');
 const sharp = require('sharp');
 const QRCode = require('qrcode');
 const { GoogleGenAI } = require('@google/genai');
+const { OAuth2Client } = require('google-auth-library');
+const yaml = require('js-yaml');
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || 'SET_YOUR_API_KEY_HERE' });
 
 const app = express();
 const port = process.env.PORT || 3000;
 const ADMIN_TOKEN = String(process.env.ADMIN_TOKEN || '').trim();
+const AUTH_MODE = String(process.env.ADMIN_AUTH_MODE || 'token').trim().toLowerCase();
+const GOOGLE_CLIENT_ID = String(process.env.ADMIN_GOOGLE_CLIENT_ID || '').trim();
+const ADMIN_GOOGLE_EMAILS = String(process.env.ADMIN_GOOGLE_EMAILS || '')
+  .split(',')
+  .map((v) => v.trim().toLowerCase())
+  .filter(Boolean);
+const DEFAULT_OWNER_EMAILS = ['kojitani3@gmail.com', 'okantani@gmail.com'];
+const ADMIN_OWNER_EMAILS = (() => {
+  const fromEnv = String(process.env.ADMIN_OWNER_EMAILS || '')
+    .split(',')
+    .map((v) => v.trim().toLowerCase())
+    .filter(Boolean);
+  return fromEnv.length ? fromEnv : DEFAULT_OWNER_EMAILS;
+})();
+const ADMIN_GOOGLE_DOMAIN = String(process.env.ADMIN_GOOGLE_DOMAIN || '').trim().toLowerCase();
 const DB_DRIVER = String(process.env.DB_DRIVER || (process.env.CLOUD_SQL_CONNECTION_NAME ? 'mysql' : 'sqlite')).trim();
+const googleAuthClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
+const ADMIN_SESSION_SECRET = String(process.env.ADMIN_SESSION_SECRET || ADMIN_TOKEN || 'dev-admin-session-secret').trim();
+const ADMIN_SESSION_TTL_MS = Math.max(3 * 60 * 60 * 1000, Number(process.env.ADMIN_SESSION_TTL_MS || 0) || 0);
 
 const dbPath = path.join(__dirname, 'db', 'quiz.sqlite');
 let sqliteDb = null;
 let mysqlPool = null;
+const PROMPT_CONFIG_TYPES = ['question', 'image'];
+const IMAGE_GEN_MAX_ATTEMPTS = 3;
+const IMAGE_BORDER_CHECK_SIZE = 256;
+const IMAGE_BORDER_STRIP = 8;
+
+const DEFAULT_PROMPT_YAML = {
+  question: [
+    'type: question',
+    'name: 設問生成システムプロンプト',
+    'version: 1',
+    'template: |',
+    '  あなたは日本語教師向けクイズ作成アシスタントです。',
+    '  以下の日本語（またはオノマトペ）を正解とする、日本語学習者向けの穴埋めクイズを作成してください。',
+    '  出力は必ずJSONのみ（Markdownや説明文は不要）。',
+    '',
+    '  ターゲット単語: {{word}}',
+    '',
+    '  【現在の入力状況（Context）】',
+    '  {{context_json}}',
+    '',
+    '  【重要ルール】',
+    '  - 既に値が入っている項目は維持し、空欄（null/空文字）の部分だけを補完すること。',
+    '  - sentence には必ず「（　　）」を含め、そこに「{{word}}」が入る文にすること。',
+    '  - choices は「{{word}}」と異なる不正解2件を出力すること。',
+    '',
+    '  【出力JSONフォーマット】',
+    '  {',
+    '    "prompt": "【この状況に合う言葉は？】などの短い設問文",',
+    '    "sentence": "ターゲット単語の位置を（　　）とした例文",',
+    '    "choices": ["不正解の選択肢1", "不正解の選択肢2"],',
+    '    "explanation": "なぜその単語が正解なのかのわかりやすい解説",',
+    '    "others": [',
+    '      { "usage": "不正解1の使われる状況", "example": "不正解1の例文" },',
+    '      { "usage": "不正解2の使われる状況", "example": "不正解2の例文" }',
+    '    ]',
+    '  }'
+  ].join('\n'),
+  image: [
+    'type: image',
+    'name: 画像生成システムプロンプト',
+    'version: 1',
+    'template: |',
+    '  あなたは日本語学習用イラストの制作アシスタントです。',
+    '  以下を画像として実現してください。説明文は不要です。',
+    '',
+    '  【優先順位】',
+    '  A) 文字なし・枠なし・余白なし',
+    '  B) サンプル画像に画風を合わせる（線の太さ、色調、塗り、構図密度）',
+    '  C) 場面コンテキストの意味を自然に描く',
+    '',
+    '  【重要ルール】',
+    '  1) 学習対象語の意味が一目で伝わる場面にする。',
+    '  2) 画風はシンプルな手描き風。茶/濃灰のやや不規則な太線、淡いパステル水彩、低彩度。',
+    '  3) 構図・重力・天候は現実的にする。',
+    '  4) 雨/雪では人物保護を自然に描く（傘・雨具・屋内/窓越し）。',
+    '  5) 装飾枠、白フチ、額縁、余白を作らない。',
+    '  6) 文字・記号・ロゴを入れない。',
+    '',
+    '  【場面コンテキスト】',
+    '  - 場面説明: {{scene_description}}',
+    '  - 解説/ニュアンス: {{explanation}}',
+    '  - 重要語（文字としては描かない）: {{key_concept}}',
+    '  - 追加要望: {{additional_prompt}}',
+    '',
+    '  最終出力は、上記条件を満たす1枚の全面イラスト。'
+  ].join('\n')
+};
 
 if (DB_DRIVER === 'sqlite') {
   const dbDir = path.dirname(dbPath);
@@ -37,6 +124,14 @@ if (!fs.existsSync(genImagesDir)) {
 
 // Memory storage for multer (we process with sharp before saving)
 const upload = multer({ storage: multer.memoryStorage() });
+
+process.on('uncaughtException', (error) => {
+  console.error('[fatal] uncaughtException', error);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[fatal] unhandledRejection', reason);
+});
 
 async function initDb() {
   if (DB_DRIVER === 'mysql') {
@@ -83,6 +178,20 @@ async function initDb() {
         UNIQUE KEY uq_quiz_learner (quiz_id, learner_name)
       )
     `);
+    await mysqlPool.execute(`
+      CREATE TABLE IF NOT EXISTS prompt_configs (
+        type VARCHAR(32) PRIMARY KEY,
+        yaml_text LONGTEXT NOT NULL,
+        updated_at VARCHAR(40) NOT NULL
+      )
+    `);
+    await mysqlPool.execute(`
+      CREATE TABLE IF NOT EXISTS admin_users (
+        email VARCHAR(255) PRIMARY KEY,
+        created_at VARCHAR(40) NOT NULL,
+        created_by VARCHAR(255) NOT NULL
+      )
+    `);
     return;
   }
 
@@ -103,6 +212,18 @@ async function initDb() {
       latest_total_attempts INTEGER DEFAULT 0,
       updated_at TEXT NOT NULL,
       UNIQUE(quiz_id, learner_name)
+    );
+
+    CREATE TABLE IF NOT EXISTS prompt_configs (
+      type TEXT PRIMARY KEY,
+      yaml_text TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS admin_users (
+      email TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL,
+      created_by TEXT NOT NULL
     );
   `);
 }
@@ -149,12 +270,199 @@ function isAuthorizedAdmin(req) {
   return crypto.timingSafeEqual(expected, actual);
 }
 
-function requireAdminAuth(req, res, next) {
+function parseBearerToken(req) {
+  const authHeader = String(req.get('authorization') || '');
+  if (!authHeader.startsWith('Bearer ')) {
+    return '';
+  }
+  return authHeader.slice(7).trim();
+}
+
+function normalizeEmail(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function base64UrlEncode(input) {
+  return Buffer.from(input, 'utf8').toString('base64url');
+}
+
+function base64UrlDecode(input) {
+  return Buffer.from(String(input || ''), 'base64url').toString('utf8');
+}
+
+function signAdminSessionPayload(payloadB64) {
+  return crypto
+    .createHmac('sha256', ADMIN_SESSION_SECRET)
+    .update(payloadB64)
+    .digest('base64url');
+}
+
+function createAdminSessionToken(adminUser) {
+  const now = Date.now();
+  const payload = {
+    email: normalizeEmail(adminUser?.email || ''),
+    name: String(adminUser?.name || ''),
+    role: String(adminUser?.role || 'user'),
+    provider: 'google',
+    iat: now,
+    exp: now + ADMIN_SESSION_TTL_MS
+  };
+  const payloadB64 = base64UrlEncode(JSON.stringify(payload));
+  const sig = signAdminSessionPayload(payloadB64);
+  return `app.${payloadB64}.${sig}`;
+}
+
+function verifyAdminSessionToken(token) {
+  const raw = String(token || '').trim();
+  const parts = raw.split('.');
+  if (parts.length !== 3 || parts[0] !== 'app') {
+    return { ok: false, reason: 'format' };
+  }
+  const payloadB64 = parts[1];
+  const sig = parts[2];
+  const expectedSig = signAdminSessionPayload(payloadB64);
+  const expected = Buffer.from(expectedSig, 'utf8');
+  const actual = Buffer.from(sig, 'utf8');
+  if (expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) {
+    return { ok: false, reason: 'signature' };
+  }
+  let payload;
+  try {
+    payload = JSON.parse(base64UrlDecode(payloadB64));
+  } catch (_error) {
+    return { ok: false, reason: 'payload' };
+  }
+  const exp = Number(payload?.exp || 0);
+  if (!exp || Date.now() > exp) {
+    return { ok: false, reason: 'expired' };
+  }
+  const email = normalizeEmail(payload?.email || '');
+  if (!email) {
+    return { ok: false, reason: 'email' };
+  }
+  return {
+    ok: true,
+    adminUser: {
+      email,
+      name: String(payload?.name || ''),
+      provider: 'google',
+      role: String(payload?.role || 'user')
+    }
+  };
+}
+
+function isOwnerEmail(email) {
+  const normalized = normalizeEmail(email);
+  return ADMIN_OWNER_EMAILS.includes(normalized);
+}
+
+async function isDynamicAdminEmail(email) {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return false;
+  const row = await dbGet('SELECT email FROM admin_users WHERE email = ?', [normalized]);
+  return Boolean(row?.email);
+}
+
+async function resolveGoogleAdminUser(email, name = '') {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) {
+    return { ok: false, status: 401, message: 'Googleアカウント情報を確認できませんでした。' };
+  }
+  const owner = isOwnerEmail(normalizedEmail);
+  if (!owner) {
+    const allowListed = ADMIN_GOOGLE_EMAILS.includes(normalizedEmail);
+    const dynamicAllowed = await isDynamicAdminEmail(normalizedEmail);
+    if (!allowListed && !dynamicAllowed) {
+      return { ok: false, status: 403, message: 'このGoogleアカウントには管理権限がありません。' };
+    }
+  }
+  return {
+    ok: true,
+    adminUser: {
+      email: normalizedEmail,
+      name: String(name || ''),
+      provider: 'google',
+      role: owner ? 'owner' : 'user'
+    }
+  };
+}
+
+async function verifyGoogleAdminToken(req) {
+  if (!GOOGLE_CLIENT_ID || !googleAuthClient) {
+    return { ok: false, status: 503, message: 'Google管理者認証が未設定です。ADMIN_GOOGLE_CLIENT_ID を設定してください。' };
+  }
+
+  const token = parseBearerToken(req);
+  if (!token) {
+    return { ok: false, status: 401, message: 'Googleログインが必要です。' };
+  }
+
+  const appSession = verifyAdminSessionToken(token);
+  if (appSession.ok) {
+    req.adminUser = appSession.adminUser;
+    return { ok: true };
+  }
+
+  try {
+    const ticket = await googleAuthClient.verifyIdToken({
+      idToken: token,
+      audience: GOOGLE_CLIENT_ID
+    });
+    const payload = ticket.getPayload() || {};
+    const email = String(payload.email || '').trim().toLowerCase();
+    const emailVerified = Boolean(payload.email_verified);
+    const domain = String(payload.hd || '').trim().toLowerCase();
+
+    if (!email || !emailVerified) {
+      return { ok: false, status: 401, message: 'Googleアカウント情報を確認できませんでした。' };
+    }
+
+    if (ADMIN_GOOGLE_DOMAIN) {
+      const domainAllowed = ADMIN_GOOGLE_DOMAIN === domain || email.endsWith(`@${ADMIN_GOOGLE_DOMAIN}`);
+      if (!domainAllowed) {
+        return { ok: false, status: 403, message: 'このGoogleアカウントには管理権限がありません。' };
+      }
+    }
+
+    const resolved = await resolveGoogleAdminUser(email, String(payload.name || ''));
+    if (!resolved.ok) {
+      return { ok: false, status: resolved.status, message: resolved.message };
+    }
+    req.adminUser = resolved.adminUser;
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, status: 401, message: 'Google認証トークンが無効です。再ログインしてください。' };
+  }
+}
+
+async function requireAdminAuth(req, res, next) {
+  if (AUTH_MODE === 'google') {
+    const verified = await verifyGoogleAdminToken(req);
+    if (!verified.ok) {
+      return res.status(verified.status).json({ message: verified.message });
+    }
+    return next();
+  }
+
   if (!ADMIN_TOKEN) {
     return res.status(503).json({ message: '管理者認証が未設定です。ADMIN_TOKEN を設定してください。' });
   }
   if (!isAuthorizedAdmin(req)) {
     return res.status(401).json({ message: '管理者認証に失敗しました。' });
+  }
+  return next();
+}
+
+async function requireOwnerAuth(req, res, next) {
+  if (AUTH_MODE !== 'google') {
+    return res.status(403).json({ message: 'この機能はGoogle認証モードでのみ利用できます。' });
+  }
+  const verified = await verifyGoogleAdminToken(req);
+  if (!verified.ok) {
+    return res.status(verified.status).json({ message: verified.message });
+  }
+  if (!isOwnerEmail(req.adminUser?.email)) {
+    return res.status(403).json({ message: 'この操作はオーナー管理者のみ実行できます。' });
   }
   return next();
 }
@@ -189,8 +497,199 @@ app.use((_req, res, next) => {
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+app.get('/api/auth/config', (_req, res) => {
+  if (AUTH_MODE === 'google') {
+    return res.status(200).json({
+      mode: 'google',
+      googleClientId: GOOGLE_CLIENT_ID || '',
+      googleDomain: ADMIN_GOOGLE_DOMAIN || '',
+      ownerEmails: ADMIN_OWNER_EMAILS,
+      sessionTtlMinutes: Math.floor(ADMIN_SESSION_TTL_MS / 60000),
+      hint: '教師・管理者はGoogleでログインしてください。'
+    });
+  }
+  return res.status(200).json({
+    mode: 'token',
+    hint: '管理者トークンを入力してください。'
+  });
+});
+
+app.post('/api/auth/google-exchange', async (req, res) => {
+  if (AUTH_MODE !== 'google') {
+    return res.status(400).json({ message: 'この環境はGoogle認証モードではありません。' });
+  }
+  if (!GOOGLE_CLIENT_ID || !googleAuthClient) {
+    return res.status(503).json({ message: 'Google管理者認証が未設定です。ADMIN_GOOGLE_CLIENT_ID を設定してください。' });
+  }
+
+  const idToken = String(req.body?.idToken || '').trim();
+  if (!idToken) {
+    return res.status(400).json({ message: 'idToken が必要です。' });
+  }
+
+  try {
+    const ticket = await googleAuthClient.verifyIdToken({
+      idToken,
+      audience: GOOGLE_CLIENT_ID
+    });
+    const payload = ticket.getPayload() || {};
+    const email = String(payload.email || '').trim().toLowerCase();
+    const emailVerified = Boolean(payload.email_verified);
+    const domain = String(payload.hd || '').trim().toLowerCase();
+    if (!email || !emailVerified) {
+      return res.status(401).json({ message: 'Googleアカウント情報を確認できませんでした。' });
+    }
+    if (ADMIN_GOOGLE_DOMAIN) {
+      const domainAllowed = ADMIN_GOOGLE_DOMAIN === domain || email.endsWith(`@${ADMIN_GOOGLE_DOMAIN}`);
+      if (!domainAllowed) {
+        return res.status(403).json({ message: 'このGoogleアカウントには管理権限がありません。' });
+      }
+    }
+    const resolved = await resolveGoogleAdminUser(email, String(payload.name || ''));
+    if (!resolved.ok) {
+      return res.status(resolved.status).json({ message: resolved.message });
+    }
+    const appToken = createAdminSessionToken(resolved.adminUser);
+    return res.status(200).json({
+      appToken,
+      expiresAt: new Date(Date.now() + ADMIN_SESSION_TTL_MS).toISOString(),
+      sessionTtlMinutes: Math.floor(ADMIN_SESSION_TTL_MS / 60000),
+      user: resolved.adminUser
+    });
+  } catch (error) {
+    return res.status(401).json({ message: 'Google認証トークンが無効です。再ログインしてください。' });
+  }
+});
+
+app.get('/api/auth/session', requireAdminAuth, async (req, res) => {
+  if (AUTH_MODE === 'google') {
+    return res.status(200).json({
+      mode: 'google',
+      email: req.adminUser?.email || '',
+      name: req.adminUser?.name || '',
+      role: req.adminUser?.role || 'teacher'
+    });
+  }
+  return res.status(200).json({
+    mode: 'token',
+    role: 'owner'
+  });
+});
+
+app.get('/api/docs/:key', requireAdminAuth, async (req, res) => {
+  const key = String(req.params.key || '').trim();
+  const docsMap = {
+    readme: path.join(__dirname, 'README.md'),
+    teacher_manual: path.join(__dirname, '教師向け簡易マニュアル.md')
+  };
+  const filePath = docsMap[key];
+  if (!filePath) {
+    return res.status(404).json({ message: 'ドキュメントが見つかりません。' });
+  }
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ message: 'ドキュメントファイルが存在しません。' });
+  }
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    return res.status(200).json({
+      key,
+      title: key === 'readme' ? 'README.md' : '教師向け簡易マニュアル.md',
+      content
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'ドキュメントの読み込みに失敗しました。' });
+  }
+});
+
+app.get('/api/admin-users', requireOwnerAuth, async (_req, res) => {
+  try {
+    const rows = await dbAll('SELECT email, created_at, created_by FROM admin_users ORDER BY created_at DESC');
+    const merged = new Map();
+
+    for (const ownerEmail of ADMIN_OWNER_EMAILS) {
+      merged.set(ownerEmail, {
+        email: ownerEmail,
+        role: 'owner',
+        createdAt: null,
+        createdBy: 'system'
+      });
+    }
+    for (const row of rows) {
+      const email = normalizeEmail(row.email);
+      if (!email || merged.has(email)) continue;
+      merged.set(email, {
+        email,
+        role: 'user',
+        createdAt: row.created_at,
+        createdBy: row.created_by
+      });
+    }
+
+    return res.status(200).json({ items: Array.from(merged.values()) });
+  } catch (error) {
+    return res.status(500).json({ message: '教師アカウント一覧の取得に失敗しました。' });
+  }
+});
+
+app.post('/api/admin-users', requireOwnerAuth, async (req, res) => {
+  try {
+    const email = normalizeEmail(req.body?.email);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ message: '有効なメールアドレスを入力してください。' });
+    }
+    if (isOwnerEmail(email)) {
+      return res.status(200).json({ message: 'このメールは既にオーナー管理者です。' });
+    }
+
+    const now = new Date().toISOString();
+    const createdBy = normalizeEmail(req.adminUser?.email || 'owner');
+    if (DB_DRIVER === 'mysql') {
+      await dbRun(
+        `INSERT INTO admin_users (email, created_at, created_by)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE created_at = created_at`,
+        [email, now, createdBy]
+      );
+    } else {
+      await dbRun(
+        `INSERT INTO admin_users (email, created_at, created_by)
+         VALUES (?, ?, ?)
+         ON CONFLICT(email) DO NOTHING`,
+        [email, now, createdBy]
+      );
+    }
+    return res.status(200).json({ success: true, email });
+  } catch (error) {
+    return res.status(500).json({ message: '教師アカウントの追加に失敗しました。' });
+  }
+});
+
+app.delete('/api/admin-users/:email', requireOwnerAuth, async (req, res) => {
+  try {
+    const email = normalizeEmail(decodeURIComponent(req.params.email || ''));
+    if (!email) {
+      return res.status(400).json({ message: 'メールアドレスが必要です。' });
+    }
+    if (isOwnerEmail(email)) {
+      return res.status(400).json({ message: 'オーナー管理者は削除できません。' });
+    }
+    await dbRun('DELETE FROM admin_users WHERE email = ?', [email]);
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    return res.status(500).json({ message: '教師アカウントの削除に失敗しました。' });
+  }
+});
+
 app.get('/', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'lp.html')); // Fallback LP if we rename it, but let's just make it redirect to admin for now, or LP. Let's just do LP.
+});
+
+app.get('/teacher-login', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'teacher-login.html'));
+});
+
+app.get('/owner-admin', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'owner-admin.html'));
 });
 
 app.get('/admin', (_req, res) => {
@@ -257,6 +756,335 @@ function normalizeQuestion(raw, index) {
   };
 }
 
+function isPromptConfigType(type) {
+  return PROMPT_CONFIG_TYPES.includes(type);
+}
+
+function renderPromptTemplate(template, variables) {
+  return String(template).replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_full, key) => {
+    const value = variables[key];
+    if (value === undefined || value === null) {
+      return '';
+    }
+    return String(value);
+  });
+}
+
+function normalizeOneLine(text) {
+  return String(text || '').replace(/\s+/g, ' ').trim();
+}
+
+function mentionsRainOrSnow(text) {
+  const value = String(text || '').toLowerCase();
+  return /(雨|雪|rain|snow|storm|shower|降って|降り)/i.test(value);
+}
+
+function mentionsIndoorOrWindow(text) {
+  const value = String(text || '').toLowerCase();
+  return /(室内|屋内|部屋|窓|window|indoors|inside)/i.test(value);
+}
+
+function buildDeterministicImageFallbackPrompt(context) {
+  const scene = normalizeOneLine(context?.sentence ? String(context.sentence).replace('（　　）', String(context.correct || '')) : '');
+  const nuance = normalizeOneLine(context?.explanation || '');
+  const concept = normalizeOneLine(context?.correct || '');
+  const additional = normalizeOneLine(context?.additionalPrompt || '');
+  const rainOrSnow = mentionsRainOrSnow(`${scene} ${nuance}`);
+  const indoorWindow = mentionsIndoorOrWindow(`${scene} ${nuance}`);
+  const weatherRule = rainOrSnow
+    ? (indoorWindow
+      ? '雨や雪は窓の外側のみにし、屋内へ降り込ませない。'
+      : '雨や雪の場面では、人物に傘・雨具などの自然な保護を与える。')
+    : '天候と環境の整合性を自然に保つ。';
+  return normalizeOneLine([
+    '日本語学習向けの安全で穏やかな日常イラストを作成する。',
+    scene ? `場面: ${scene}。` : '',
+    nuance ? `解説ニュアンス: ${nuance}。` : '',
+    concept ? `重要語（文字として描かない）: ${concept}。` : '',
+    additional ? `追加要望: ${additional}。` : '',
+    '意味はモチーフと行動で表現し、文字情報は入れない。',
+    '構図・重力・天候挙動などの物理整合性を保つ。',
+    weatherRule,
+    '画風は淡いパステル水彩、茶または濃いグレーのやや太い輪郭、落ち着いた配色。',
+    '仕上がりは枠なし・余白なしの全面イラスト（フルブリード）。'
+  ].filter(Boolean).join(' '));
+}
+
+function enforceImagePromptRules(candidatePrompt, context) {
+  const base = normalizeOneLine(candidatePrompt);
+  const deterministic = buildDeterministicImageFallbackPrompt(context);
+  const source = base || deterministic;
+  const rainOrSnow = mentionsRainOrSnow(`${source} ${context?.sentence || ''} ${context?.explanation || ''}`);
+  const indoorWindow = mentionsIndoorOrWindow(`${source} ${context?.sentence || ''} ${context?.explanation || ''}`);
+  const weatherRule = rainOrSnow
+    ? (indoorWindow
+      ? '雨や雪は窓の外側に限定し、室内へ降り込ませない。'
+      : '雨や雪の場面では人物を傘・雨具などで自然に保護する。')
+    : '天候挙動は物理的に自然に保つ。';
+
+  return normalizeOneLine([
+    source,
+    '意味は視覚的モチーフで伝え、文字情報は入れない。',
+    '現実的な構図・重力・天候挙動を保つ。',
+    weatherRule,
+    '装飾枠・余白・額縁のないフルブリード構図で描写する。'
+  ].join(' '));
+}
+
+function isGeminiSafetyFilterError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('responsible ai practices')
+    || message.includes('filtered out')
+    || message.includes('invalid_argument');
+}
+
+function buildGeminiSafetyRetryPrompt(basePrompt, context, attempt = 1) {
+  const base = normalizeOneLine(basePrompt);
+  const scene = normalizeOneLine(context?.sentence ? String(context.sentence).replace('（　　）', String(context.correct || '')) : '');
+  const concept = normalizeOneLine(context?.correct || '');
+  const nuance = normalizeOneLine(context?.explanation || '');
+  const additional = normalizeOneLine(context?.additionalPrompt || '');
+  return normalizeOneLine([
+    base,
+    '（安全配慮で言い換え）暴力・成人向け・危険物を含まない、教室で扱える穏やかな日常場面として描写する。',
+    scene ? `場面: ${scene}。` : '',
+    concept ? `重要語（文字として描かない）: ${concept}。` : '',
+    nuance ? `解説ニュアンス: ${nuance}。` : '',
+    additional ? `追加要望: ${additional}。` : '',
+    '文字情報は入れない。枠線や余白は作らない。物理法則に沿って描く。',
+    `安全リトライレベル: ${attempt}`
+  ].filter(Boolean).join(' '));
+}
+
+function toUserFriendlyImageError(error) {
+  const raw = String(error?.message || '').trim();
+  if (!raw) return '画像生成に失敗しました。';
+  if (raw.includes('Responsible AI practices') || raw.includes('filtered out')) {
+    return '画像生成に失敗しました: 安全フィルタにより除外されました。穏やかな日常場面に言い換えて再試行してください。';
+  }
+  const jsonStart = raw.indexOf('{');
+  if (jsonStart >= 0) {
+    try {
+      const parsed = JSON.parse(raw.slice(jsonStart));
+      const nested = String(parsed?.error?.message || '').trim();
+      if (nested) return `画像生成に失敗しました: ${nested}`;
+    } catch (_ignore) {
+      // keep raw
+    }
+  }
+  return `画像生成に失敗しました: ${raw}`;
+}
+
+async function isLikelyBorderedImage(buffer) {
+  try {
+    const { data, info } = await sharp(buffer)
+      .resize(IMAGE_BORDER_CHECK_SIZE, IMAGE_BORDER_CHECK_SIZE, { fit: 'cover' })
+      .removeAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    const channels = info.channels;
+    const width = info.width;
+    const height = info.height;
+    if (!channels || width < 40 || height < 40) return false;
+
+    const pixelAt = (x, y) => {
+      const idx = (y * width + x) * channels;
+      return [data[idx], data[idx + 1], data[idx + 2]];
+    };
+    const luminance = ([r, g, b]) => (0.2126 * r) + (0.7152 * g) + (0.0722 * b);
+    const regionStats = (x0, y0, x1, y1) => {
+      let count = 0;
+      let sumR = 0;
+      let sumG = 0;
+      let sumB = 0;
+      let sumL = 0;
+      let sumL2 = 0;
+      for (let y = y0; y < y1; y += 1) {
+        for (let x = x0; x < x1; x += 1) {
+          const rgb = pixelAt(x, y);
+          const l = luminance(rgb);
+          count += 1;
+          sumR += rgb[0];
+          sumG += rgb[1];
+          sumB += rgb[2];
+          sumL += l;
+          sumL2 += (l * l);
+        }
+      }
+      if (!count) return null;
+      const meanL = sumL / count;
+      const variance = Math.max(0, (sumL2 / count) - (meanL * meanL));
+      return {
+        mean: [sumR / count, sumG / count, sumB / count],
+        stdL: Math.sqrt(variance)
+      };
+    };
+    const colorDistance = (a, b) => Math.sqrt(
+      ((a[0] - b[0]) ** 2) +
+      ((a[1] - b[1]) ** 2) +
+      ((a[2] - b[2]) ** 2)
+    );
+
+    const strip = IMAGE_BORDER_STRIP;
+    const top = regionStats(0, 0, width, strip);
+    const bottom = regionStats(0, height - strip, width, height);
+    const left = regionStats(0, 0, strip, height);
+    const right = regionStats(width - strip, 0, width, height);
+    const center = regionStats(strip * 2, strip * 2, width - (strip * 2), height - (strip * 2));
+    if (!top || !bottom || !left || !right || !center) return false;
+
+    const edges = [top, bottom, left, right];
+    const uniformEdges = edges.filter((edge) => edge.stdL < 7);
+    const farFromCenterEdges = edges.filter((edge) => colorDistance(edge.mean, center.mean) > 22);
+    return uniformEdges.length >= 3 && farFromCenterEdges.length >= 2;
+  } catch (_error) {
+    return false;
+  }
+}
+
+async function normalizeGeneratedImage(buffer) {
+  try {
+    // Trim flat outer whitespace and normalize to full-bleed 4:3.
+    return await sharp(buffer)
+      .trim({ threshold: 10 })
+      .resize({
+        width: 1152,
+        height: 864,
+        fit: sharp.fit.cover,
+        position: sharp.strategy.attention
+      })
+      .jpeg({ quality: 88 })
+      .toBuffer();
+  } catch (_error) {
+    return buffer;
+  }
+}
+
+function parsePromptConfigYaml(type, yamlText) {
+  let parsed;
+  try {
+    parsed = yaml.load(String(yamlText || ''));
+  } catch (error) {
+    throw new Error(`YAMLの解析に失敗しました: ${error.message}`);
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('YAMLはオブジェクト形式で指定してください。');
+  }
+  if (typeof parsed.template !== 'string' || !parsed.template.trim()) {
+    throw new Error('YAMLの template は必須です。');
+  }
+  if (parsed.type && String(parsed.type).trim() !== type) {
+    throw new Error(`YAMLの type は "${type}" にしてください。`);
+  }
+  return {
+    ...parsed,
+    type
+  };
+}
+
+async function getPromptConfigRecord(type) {
+  const row = await dbGet('SELECT type, yaml_text, updated_at FROM prompt_configs WHERE type = ?', [type]);
+  if (row) {
+    return {
+      type: row.type,
+      yamlText: String(row.yaml_text || ''),
+      updatedAt: row.updated_at,
+      isDefault: false
+    };
+  }
+  return {
+    type,
+    yamlText: DEFAULT_PROMPT_YAML[type],
+    updatedAt: null,
+    isDefault: true
+  };
+}
+
+async function savePromptConfig(type, yamlText) {
+  const now = new Date().toISOString();
+  if (DB_DRIVER === 'mysql') {
+    await dbRun(
+      `INSERT INTO prompt_configs (type, yaml_text, updated_at)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE yaml_text = VALUES(yaml_text), updated_at = VALUES(updated_at)`,
+      [type, yamlText, now]
+    );
+  } else {
+    await dbRun(
+      `INSERT INTO prompt_configs (type, yaml_text, updated_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(type) DO UPDATE SET yaml_text = excluded.yaml_text, updated_at = excluded.updated_at`,
+      [type, yamlText, now]
+    );
+  }
+}
+
+async function buildQuestionSystemPrompt({ word, context }) {
+  const record = await getPromptConfigRecord('question');
+  let config;
+  try {
+    config = parsePromptConfigYaml('question', record.yamlText);
+  } catch (error) {
+    console.error('Invalid question prompt config; fallback to default:', error.message);
+    config = parsePromptConfigYaml('question', DEFAULT_PROMPT_YAML.question);
+  }
+  const contextJson = JSON.stringify(context || {}, null, 2);
+  return renderPromptTemplate(config.template, {
+    word: String(word || '').trim(),
+    context_json: contextJson
+  });
+}
+
+function normalizeImagePathFromUrl(imageUrl) {
+  const raw = String(imageUrl || '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('/images/')) return raw;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.pathname && parsed.pathname.startsWith('/images/')) {
+      return parsed.pathname;
+    }
+  } catch (_error) {
+    // ignore parse error
+  }
+  return '';
+}
+
+async function loadReferenceImageBuffer(imageUrl) {
+  const imagePath = normalizeImagePathFromUrl(imageUrl);
+  if (!imagePath) return null;
+  const absolute = path.join(__dirname, 'public', imagePath.replace(/^\//, ''));
+  if (!absolute.startsWith(path.join(__dirname, 'public'))) return null;
+  if (!fs.existsSync(absolute)) return null;
+  const original = fs.readFileSync(absolute);
+  return sharp(original)
+    .resize({ width: 768, height: 768, fit: sharp.fit.inside })
+    .jpeg({ quality: 80 })
+    .toBuffer();
+}
+
+async function buildImageSystemPrompt(context) {
+  const record = await getPromptConfigRecord('image');
+  let config;
+  try {
+    config = parsePromptConfigYaml('image', record.yamlText);
+  } catch (error) {
+    console.error('Invalid image prompt config; fallback to default:', error.message);
+    config = parsePromptConfigYaml('image', DEFAULT_PROMPT_YAML.image);
+  }
+
+  const sentence = context?.sentence ? String(context.sentence).replace('（　　）', String(context.correct || '')) : '';
+  const additionalPrompt = context?.additionalPrompt ? String(context.additionalPrompt).trim() : 'なし';
+  const promptText = renderPromptTemplate(config.template, {
+    scene_description: sentence,
+    explanation: String(context?.explanation || ''),
+    key_concept: String(context?.correct || ''),
+    additional_prompt: additionalPrompt
+  });
+  return promptText;
+}
+
 async function buildQuizSharePayload(req, id) {
   const baseUrl = `${req.protocol}://${req.get('host')}`;
   const quizUrl = `${baseUrl}/quiz/${id}`;
@@ -268,6 +1096,15 @@ async function buildQuizSharePayload(req, id) {
     }
   });
   return { quizUrl, qrDataUrl };
+}
+
+async function findQuizByTitle(title) {
+  const normalized = String(title || '').trim();
+  if (!normalized) return null;
+  if (DB_DRIVER === 'mysql') {
+    return dbGet('SELECT id, title FROM quizzes WHERE LOWER(title) = LOWER(?) LIMIT 1', [normalized]);
+  }
+  return dbGet('SELECT id, title FROM quizzes WHERE lower(title) = lower(?) LIMIT 1', [normalized]);
 }
 
 app.get('/api/quizzes', requireAdminAuth, async (_req, res) => {
@@ -318,6 +1155,14 @@ app.post('/api/quizzes', requireAdminAuth, async (req, res) => {
       return res.status(400).json({ message: '問題は5問以上必要です。' });
     }
 
+    const titleConflict = await findQuizByTitle(title);
+    if (titleConflict) {
+      return res.status(409).json({
+        message: '同名タイトルが既に存在します。',
+        conflictQuizId: String(titleConflict.id || '')
+      });
+    }
+
     const questions = rawQuestions.map((q, i) => normalizeQuestion(q, i));
     const id = crypto.randomUUID().slice(0, 8);
     const createdAt = new Date().toISOString();
@@ -353,6 +1198,14 @@ app.put('/api/quizzes/:id', requireAdminAuth, async (req, res) => {
       return res.status(400).json({ message: '問題は5問以上必要です。' });
     }
 
+    const titleConflict = await findQuizByTitle(title);
+    if (titleConflict && String(titleConflict.id) !== String(req.params.id)) {
+      return res.status(409).json({
+        message: '同名タイトルが既に存在します。',
+        conflictQuizId: String(titleConflict.id || '')
+      });
+    }
+
     const questions = rawQuestions.map((q, i) => normalizeQuestion(q, i));
 
     await dbRun('UPDATE quizzes SET title = ?, questions_json = ? WHERE id = ?', [
@@ -380,6 +1233,7 @@ app.delete('/api/quizzes/:id', requireAdminAuth, async (req, res) => {
 
 app.post('/api/quizzes/:id/log', async (req, res) => {
   const quizId = req.params.id;
+  // V2 keeps Student identity as display name only (no persistent student_id yet).
   const learnerName = String(req.body?.learnerName || '').trim();
   const correctCount = Number(req.body?.correctCount || 0);
   const totalAttempts = Number(req.body?.totalAttempts || 0);
@@ -433,6 +1287,52 @@ app.get('/api/quizzes/:id/logs', requireAdminAuth, async (req, res) => {
   }
 });
 
+app.get('/api/prompt-configs', requireAdminAuth, async (_req, res) => {
+  try {
+    const [question, image] = await Promise.all([
+      getPromptConfigRecord('question'),
+      getPromptConfigRecord('image')
+    ]);
+    return res.status(200).json({ question, image });
+  } catch (error) {
+    return res.status(500).json({ message: 'プロンプト設定の取得に失敗しました。' });
+  }
+});
+
+app.put('/api/prompt-configs/:type', requireAdminAuth, async (req, res) => {
+  try {
+    const type = String(req.params.type || '').trim();
+    if (!isPromptConfigType(type)) {
+      return res.status(400).json({ message: 'type は question または image を指定してください。' });
+    }
+
+    const yamlText = String(req.body?.yaml || '').trim();
+    if (!yamlText) {
+      return res.status(400).json({ message: 'yaml は必須です。' });
+    }
+    parsePromptConfigYaml(type, yamlText);
+    await savePromptConfig(type, yamlText);
+    const record = await getPromptConfigRecord(type);
+    return res.status(200).json(record);
+  } catch (error) {
+    return res.status(400).json({ message: error.message || 'プロンプト設定の保存に失敗しました。' });
+  }
+});
+
+app.post('/api/prompt-configs/:type/reset', requireAdminAuth, async (req, res) => {
+  try {
+    const type = String(req.params.type || '').trim();
+    if (!isPromptConfigType(type)) {
+      return res.status(400).json({ message: 'type は question または image を指定してください。' });
+    }
+    await dbRun('DELETE FROM prompt_configs WHERE type = ?', [type]);
+    const record = await getPromptConfigRecord(type);
+    return res.status(200).json(record);
+  } catch (error) {
+    return res.status(500).json({ message: 'デフォルトへのリセットに失敗しました。' });
+  }
+});
+
 app.post('/api/generate-question', requireAdminAuth, aiRateLimiter, async (req, res) => {
   try {
     const word = String(req.body?.word || '').trim();
@@ -442,35 +1342,7 @@ app.post('/api/generate-question', requireAdminAuth, aiRateLimiter, async (req, 
       return res.status(400).json({ message: '正解の単語(word)が必要です。' });
     }
 
-    const promptText = `
-    以下の日本語（またはオノマトペ）を正解とする、日本語学習者向けの穴埋めクイズを作成してください。
-    出力は必ず以下のJSONフォーマットのみにしてください（Markdownブロックや余計なテキストは不要です）。
-    
-    ターゲット単語: ${word}
-
-    【現在の入力状況（Context）】
-    以下のデータはユーザーが既に入力済みの内容です。
-    この内容を維持・活かしつつ、全体の整合性が取れるように**空欄（nullまたは空文字列）の部分のみ**を生成して埋めてください。
-    既に値が入っている項目は、そのまま同じ内容を出力するか、あるいは出力から省略しても構いません。
-    
-    ${JSON.stringify(context, null, 2)}
-    
-    【期待する出力JSONフォーマット】
-    {
-      "prompt": "【この状況に合う言葉は？】などの短い設問文",
-      "sentence": "ターゲット単語の位置を（　　）とした例文",
-      "choices": ["不正解の選択肢1", "不正解の選択肢2"],
-      "explanation": "なぜその単語が正解なのかのわかりやすい解説",
-      "others": [
-        { "usage": "不正解の選択肢1の意味や使われる状況", "example": "不正解の選択肢1の例文" },
-        { "usage": "不正解の選択肢2の意味や使われる状況", "example": "不正解の選択肢2の例文" }
-      ]
-    }
-    
-     ध्यान：
-    - sentence には必ず「（　　）」を含め、そこに入るのが「${word}」であること。
-    - choices には、「${word}」とは異なるが、似たような品詞や状況の単語を2つ用意すること。
-    `;
+    const promptText = await buildQuestionSystemPrompt({ word, context });
 
     let text = '';
     const provider = req.body?.provider || 'gemini';
@@ -523,159 +1395,270 @@ app.post('/api/generate-question', requireAdminAuth, aiRateLimiter, async (req, 
   }
 });
 
+function extractGeminiImageBase64(response) {
+  const parts = [];
+  if (Array.isArray(response?.parts)) {
+    parts.push(...response.parts);
+  }
+  if (Array.isArray(response?.candidates)) {
+    for (const candidate of response.candidates) {
+      const candidateParts = candidate?.content?.parts;
+      if (Array.isArray(candidateParts)) {
+        parts.push(...candidateParts);
+      }
+    }
+  }
+  const imagePart = parts.find((part) => part?.inlineData?.data && String(part?.inlineData?.mimeType || '').startsWith('image/'));
+  return String(imagePart?.inlineData?.data || '').trim();
+}
+
+async function generateImageBufferWithWanx(prompt, dashscopeKey, baseImageBuffer) {
+  const base64Image = String(baseImageBuffer?.toString('base64') || '').trim();
+  if (!base64Image) {
+    throw new Error('Wanx画像編集の元画像がありません。');
+  }
+  const taskId = await submitWanxTask({
+    dashscopeKey,
+    endpoint: 'https://dashscope.aliyuncs.com/api/v1/services/aigc/image2image/image-synthesis',
+    payload: {
+      model: 'wanx2.1-imageedit',
+      input: {
+        function: 'stylization_all',
+        prompt,
+        base_image_url: `data:image/jpeg;base64,${base64Image}`
+      },
+      parameters: { n: 1 }
+    }
+  });
+  const taskUrl = await waitForWanxTaskResultUrl(taskId, dashscopeKey);
+  return fetchImageBufferFromUrl(taskUrl);
+}
+
+async function submitWanxTask({ dashscopeKey, endpoint, payload }) {
+  const wanxRes = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'X-DashScope-Async': 'enable',
+      'Authorization': `Bearer ${dashscopeKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!wanxRes.ok) {
+    const errText = await wanxRes.text();
+    throw new Error(`Wanx API Request Error: ${errText}`);
+  }
+  const wanxInitData = await wanxRes.json();
+  const taskId = wanxInitData.output?.task_id;
+  if (!taskId) throw new Error('Failed to get Wanx task ID');
+  return taskId;
+}
+
+async function waitForWanxTaskResultUrl(taskId, dashscopeKey, maxAttempts = 30, intervalMs = 2000) {
+  let taskUrl = '';
+  for (let i = 0; i < maxAttempts; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    const pollRes = await fetch(`https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`, {
+      headers: { Authorization: `Bearer ${dashscopeKey}` }
+    });
+    const pollData = await pollRes.json();
+    const status = pollData.output?.task_status;
+    if (status === 'SUCCEEDED') {
+      taskUrl = pollData.output?.results?.[0]?.url;
+      break;
+    }
+    if (status === 'FAILED' || status === 'UNKNOWN') {
+      throw new Error(`Wanx API Task Failed: ${pollData.output?.message || 'Unknown error'}`);
+    }
+  }
+  if (!taskUrl) throw new Error('Wanx Timeout');
+  return taskUrl;
+}
+
+async function fetchImageBufferFromUrl(taskUrl) {
+  const imgRes = await fetch(taskUrl);
+  const imgBuffer = await imgRes.arrayBuffer();
+  return Buffer.from(imgBuffer);
+}
+
+async function generateImageBufferWithWanxText2Image(prompt, dashscopeKey) {
+  const taskId = await submitWanxTask({
+    dashscopeKey,
+    endpoint: 'https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis',
+    payload: {
+      model: 'wanx2.0-t2i-turbo',
+      input: { prompt },
+      parameters: {
+        size: '1152*864',
+        n: 1
+      }
+    }
+  });
+  const taskUrl = await waitForWanxTaskResultUrl(taskId, dashscopeKey);
+  return fetchImageBufferFromUrl(taskUrl);
+}
+
+async function generateImageBufferWithGemini(prompt, baseImageBuffer) {
+  const parts = [{ text: prompt }];
+  if (baseImageBuffer) {
+    parts.push({
+      inlineData: {
+        mimeType: 'image/jpeg',
+        data: baseImageBuffer.toString('base64')
+      }
+    });
+  }
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-flash-image',
+    contents: [{ role: 'user', parts }],
+    config: {
+      responseModalities: ['TEXT', 'IMAGE']
+    }
+  });
+  const base64Image = extractGeminiImageBase64(response);
+  if (!base64Image) {
+    throw new Error('画像が生成されませんでした。');
+  }
+  return Buffer.from(base64Image, 'base64');
+}
+
+async function hasReadableTextInImage(buffer) {
+  try {
+    // Cheap guardrail: ask a vision model to detect any visible text in the generated image.
+    const base64 = buffer.toString('base64');
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: 'この画像に読める文字（ひらがな・カタカナ・漢字・英字・数字・記号）が少しでも含まれますか。yes か no だけで答えてください。' },
+            { inlineData: { mimeType: 'image/jpeg', data: base64 } }
+          ]
+        }
+      ]
+    });
+    const text = String(response?.text || '').trim().toLowerCase();
+    return text.startsWith('yes');
+  } catch (_error) {
+    // If check fails, do not block generation.
+    return false;
+  }
+}
+
 app.post('/api/generate-image', requireAdminAuth, aiRateLimiter, async (req, res) => {
   try {
     const context = req.body?.context || {};
+    const textPrompt = await buildImageSystemPrompt(context);
+    const currentImageBuffer = await loadReferenceImageBuffer(context?.currentImageUrl || '');
+    const sampleImageBuffer = await loadReferenceImageBuffer(context?.sampleImageUrl || '');
+    const usingCurrentImage = Boolean(currentImageBuffer);
+    const usingSampleImage = !usingCurrentImage && Boolean(sampleImageBuffer);
+    const baseImageBuffer = currentImageBuffer || sampleImageBuffer || null;
+    let imagePrompt = textPrompt;
+    if (usingSampleImage) {
+      imagePrompt = `${imagePrompt}
 
-    // 1. Text to Text prompt engineering
-    const textPrompt = `
-You are an expert prompt engineer for an image generation AI.
-Your task is to write a short, highly-detailed English visual description to generate an image for a Japanese language quiz.
-The style must strictly be a "simple illustration with soft, slightly irregular thick outlines (drawn with brown or dark gray colored pencil/crayon - NEVER stark black), colored with a very light, thin pastel watercolor wash and muted colors".
-
-CRITICAL RULES:
-1. NO TEXT OR TYPOGRAPHY: The image must absolutely NOT contain any words, letters, characters, alphabets, or text of any kind.
-2. AESTHETIC STYLE: Force the aesthetic to be exactly: "thick but soft-colored (brown or gray) slightly broken outlines, thin pastel watercolor wash, muted pastel colors, simple background". absolutely NO harsh black outlines.
-3. STRICT REALISTIC PHYSICS & LOGIC: You must strictly obey ALL natural physical laws. Gravity exists (objects cannot float in mid-air unless they are balloons). Light, shadow, and environment interaction must be logical.
-4. PROPORTIONS & WEATHER LOGIC: Ensure relative sizes of objects and animals are natural (a cat MUST be smaller than a human). If it is raining/snowing, characters MUST rationally react: either OUTSIDE using an umbrella/raincoat, OR INDOORS viewing from a window. NEVER draw a character standing dry in the rain without an umbrella.
-5. NO BORDERS OR FRAMES: You must explicitly append the exact keywords "borderless, no frame, full bleed canvas, edge-to-edge" to the end of your generated prompt. The illustration must fill the entire image naturally without any decorative frames, colored borders, polaroid edges, white canvas margins, or sketchbook rings.
-6. ENGLISH OUTPUT ONLY: Output ONLY the final English prompt, nothing else. Do not use markdown blocks.
-
-Context for the scene:
-${context.sentence ? `Scene description: ${context.sentence.replace('（　　）', context.correct || '')}` : ''}
-${context.explanation ? `Explanation/Nuance: ${context.explanation}` : ''}
-${context.correct ? `Key concept to illustrate the mood (do not write this word in the image): ${context.correct}` : ''}
-${context.additionalPrompt ? `\nUSER'S SPECIAL REFINEMENT REQUEST: "${context.additionalPrompt}"\n=> You MUST strictly incorporate this specific request into the final image prompt while still obeying all previously mentioned critical rules.` : ''}
-
-Write the image generation prompt in English now:
-`;
-
-    let optimizedPrompt = '';
+【参照画像の扱い】
+- この参照画像は画調（線・塗り・色調・質感）のみ参考にする。
+- 参照画像内の人物・建物・天候・小物・構図をそのまま流用しない。
+- 場面内容は上記コンテキスト（場面説明・解説・重要語・追加要望）に忠実に描く。`;
+    }
+    imagePrompt = enforceImagePromptRules(imagePrompt, context);
     const provider = req.body?.provider || 'gemini';
+    let lastGeminiError = null;
+    let bestCandidateBuffer = null;
+    let bestCandidateReason = '';
 
-    if (provider === 'qwen') {
-      const dashscopeKey = process.env.DASHSCOPE_API_KEY;
-      if (!dashscopeKey) throw new Error('DASHSCOPE_API_KEYが設定されていません。');
-
-      // Prompt Engineering via Qwen
-      const qwenTextRes = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${dashscopeKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: 'qwen-plus',
-          messages: [{ role: 'user', content: textPrompt }]
-        })
-      });
-      if (!qwenTextRes.ok) throw new Error(`Qwen Text API Error: ${qwenTextRes.status}`);
-      const textData = await qwenTextRes.json();
-      optimizedPrompt = textData.choices?.[0]?.message?.content || '';
-      optimizedPrompt = optimizedPrompt.replace(/```[a-z]*\n?/g, '').replace(/```\n?/g, '').trim();
-      if (!optimizedPrompt) optimizedPrompt = "A cute watercolor illustration of a child holding an umbrella in the rain. No text.";
-
-      // Text to Image via Wanx
-      const wanxRes = await fetch('https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis', {
-        method: 'POST',
-        headers: {
-          'X-DashScope-Async': 'enable',
-          'Authorization': `Bearer ${dashscopeKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: 'wanx2.0-t2i-turbo',
-          input: { prompt: optimizedPrompt },
-          parameters: {
-            size: '1152*864',
-            n: 1
+    for (let attempt = 1; attempt <= IMAGE_GEN_MAX_ATTEMPTS; attempt += 1) {
+      let buffer;
+      try {
+        if (provider === 'qwen') {
+          const dashscopeKey = process.env.DASHSCOPE_API_KEY;
+          if (!dashscopeKey) throw new Error('DASHSCOPE_API_KEYが設定されていません。');
+          if (usingCurrentImage && baseImageBuffer) {
+            buffer = await generateImageBufferWithWanx(imagePrompt, dashscopeKey, baseImageBuffer);
+          } else {
+            buffer = await generateImageBufferWithWanxText2Image(imagePrompt, dashscopeKey);
           }
-        })
-      });
-
-      if (!wanxRes.ok) {
-        const errText = await wanxRes.text();
-        throw new Error(`Wanx API Request Error: ${errText}`);
-      }
-      const wanxInitData = await wanxRes.json();
-      const taskId = wanxInitData.output?.task_id;
-      if (!taskId) throw new Error('Failed to get Wanx task ID');
-
-      // Poll for completion
-      let taskUrl = '';
-      for (let i = 0; i < 30; i++) {
-        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
-        const pollRes = await fetch(`https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`, {
-          headers: { 'Authorization': `Bearer ${dashscopeKey}` }
-        });
-        const pollData = await pollRes.json();
-        const status = pollData.output?.task_status;
-        if (status === 'SUCCEEDED') {
-          taskUrl = pollData.output?.results?.[0]?.url;
+        } else {
+          buffer = await generateImageBufferWithGemini(imagePrompt, baseImageBuffer);
+        }
+      } catch (error) {
+        if (provider === 'gemini' && isGeminiSafetyFilterError(error)) {
+          lastGeminiError = error;
+          if (attempt < IMAGE_GEN_MAX_ATTEMPTS) {
+            imagePrompt = enforceImagePromptRules(buildGeminiSafetyRetryPrompt(imagePrompt, context, attempt), context);
+            continue;
+          }
           break;
-        } else if (status === 'FAILED' || status === 'UNKNOWN') {
-          throw new Error(`Wanx API Task Failed: ${pollData.output?.message || 'Unknown error'}`);
         }
+        throw error;
       }
 
-      if (!taskUrl) throw new Error("Wanx Timeout");
-
-      // Download the image buffer
-      const imgRes = await fetch(taskUrl);
-      const imgBuffer = await imgRes.arrayBuffer();
-      const buffer = Buffer.from(imgBuffer);
-
-      // Save to public/images/gen/
-      const filename = `${crypto.randomUUID()}.jpeg`;
-      const filepath = path.join(genImagesDir, filename);
-      fs.writeFileSync(filepath, buffer);
-
-      return res.status(200).json({ imageUrl: `/images/gen/${filename}` });
-
-    } else {
-      // GEMINI PROVIDER
-      const textResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: textPrompt
-      });
-
-      optimizedPrompt = textResponse.text || '';
-      optimizedPrompt = optimizedPrompt.replace(/```[a-z]*\n?/g, '').replace(/```\n?/g, '').trim();
-
-      if (!optimizedPrompt) {
-        optimizedPrompt = "A cute watercolor illustration of a child holding an umbrella in the rain. No text.";
+      const normalizedBuffer = await normalizeGeneratedImage(buffer);
+      const hasFrame = await isLikelyBorderedImage(normalizedBuffer);
+      const hasText = await hasReadableTextInImage(normalizedBuffer);
+      bestCandidateBuffer = normalizedBuffer;
+      bestCandidateReason = hasFrame && hasText ? '枠線と文字混入' : (hasFrame ? '枠線' : '文字混入');
+      if (!hasFrame && !hasText) {
+        const filename = `${crypto.randomUUID()}.jpeg`;
+        const filepath = path.join(genImagesDir, filename);
+        fs.writeFileSync(filepath, normalizedBuffer);
+        return res.status(200).json({ imageUrl: `/images/gen/${filename}` });
       }
 
-      // 2. Text to Image
-      const response = await ai.models.generateImages({
-        model: 'imagen-4.0-generate-001',
-        prompt: optimizedPrompt,
-        config: {
-          numberOfImages: 1,
-          outputMimeType: 'image/jpeg',
-          aspectRatio: '4:3'
+      if (attempt < IMAGE_GEN_MAX_ATTEMPTS) {
+        imagePrompt = enforceImagePromptRules(`${imagePrompt} 強化指示: 文字情報を使わず、枠や余白のない全面イラストに寄せる。`, context);
+        continue;
+      }
+
+      if (bestCandidateBuffer) {
+        const filename = `${crypto.randomUUID()}.jpeg`;
+        const filepath = path.join(genImagesDir, filename);
+        fs.writeFileSync(filepath, bestCandidateBuffer);
+        return res.status(200).json({
+          imageUrl: `/images/gen/${filename}`,
+          warning: `自動検査で${bestCandidateReason}を検出しましたが、候補画像を返しました。必要なら再生成してください。`
+        });
+      }
+      throw new Error('枠線または文字混入のない画像を生成できませんでした。YAMLの画像生成プロンプトを見直してください。');
+    }
+
+    if (provider === 'gemini' && lastGeminiError) {
+      const dashscopeKey = process.env.DASHSCOPE_API_KEY;
+      if (dashscopeKey) {
+        const fallbackPrompt = enforceImagePromptRules(buildGeminiSafetyRetryPrompt(imagePrompt, context, IMAGE_GEN_MAX_ATTEMPTS + 1), context);
+        const buffer = usingCurrentImage && baseImageBuffer
+          ? await generateImageBufferWithWanx(fallbackPrompt, dashscopeKey, baseImageBuffer)
+          : await generateImageBufferWithWanxText2Image(fallbackPrompt, dashscopeKey);
+        const normalizedBuffer = await normalizeGeneratedImage(buffer);
+        const hasFrame = await isLikelyBorderedImage(normalizedBuffer);
+        const hasText = await hasReadableTextInImage(normalizedBuffer);
+        if (hasFrame || hasText) {
+          const filename = `${crypto.randomUUID()}.jpeg`;
+          const filepath = path.join(genImagesDir, filename);
+          fs.writeFileSync(filepath, normalizedBuffer);
+          return res.status(200).json({
+            imageUrl: `/images/gen/${filename}`,
+            warning: 'Gemini安全フィルタ回避後の画像に枠線または文字混入の疑いがあります。必要なら再生成してください。'
+          });
         }
-      });
-
-      if (!response || !response.generatedImages || response.generatedImages.length === 0) {
-        throw new Error("画像が生成されませんでした。");
+        const filename = `${crypto.randomUUID()}.jpeg`;
+        const filepath = path.join(genImagesDir, filename);
+        fs.writeFileSync(filepath, normalizedBuffer);
+        return res.status(200).json({ imageUrl: `/images/gen/${filename}` });
       }
-
-      const base64Image = response.generatedImages[0].image.imageBytes;
-      const buffer = Buffer.from(base64Image, 'base64');
-
-      // Save to public/images/gen/
-      const filename = `${crypto.randomUUID()}.jpeg`;
-      const filepath = path.join(genImagesDir, filename);
-      fs.writeFileSync(filepath, buffer);
-
-      const imageUrl = `/images/gen/${filename}`;
-      return res.status(200).json({ imageUrl });
+      throw new Error('Geminiの安全フィルタで画像が除外されました。内容を穏やかな日常場面に変更して再試行してください。');
     }
 
   } catch (error) {
     console.error("AI Image Generation Error", error);
-    return res.status(500).json({ message: '画像生成に失敗しました。', error: error.message });
+    const friendly = toUserFriendlyImageError(error);
+    return res.status(500).json({
+      message: friendly,
+      error: String(error?.message || '')
+    });
   }
 });
 
@@ -730,7 +1713,7 @@ app.use((err, req, res, next) => {
 async function start() {
   await initDb();
   app.listen(port, () => {
-    console.log(`日本語クイズ app listening on http://localhost:${port} (db=${DB_DRIVER})`);
+    console.log(`日本語クイズ app listening on http://localhost:${port} (db=${DB_DRIVER}, auth=${AUTH_MODE})`);
   });
 }
 

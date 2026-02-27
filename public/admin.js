@@ -3,11 +3,29 @@ const addRowBtn = document.getElementById('addRowBtn');
 const loadSampleBtn = document.getElementById('loadSampleBtn');
 const saveQuizBtn = document.getElementById('saveQuizBtn');
 const cancelEditBtn = document.getElementById('cancelEditBtn');
+const backToLpBtn = document.getElementById('backToLpBtn');
 const formMessage = document.getElementById('formMessage');
 const editStatus = document.getElementById('editStatus');
 const quizListBody = document.getElementById('quizListBody');
 const titleInput = document.getElementById('titleInput');
+const promptConfigTypeSelect = document.getElementById('promptConfigType');
+const promptConfigEditorPanel = document.getElementById('promptConfigEditorPanel');
+const promptConfigEditorTitle = document.getElementById('promptConfigEditorTitle');
+const promptConfigYaml = document.getElementById('promptConfigYaml');
+const promptConfigStatus = document.getElementById('promptConfigStatus');
+const savePromptConfigBtn = document.getElementById('savePromptConfigBtn');
+const resetPromptConfigBtn = document.getElementById('resetPromptConfigBtn');
+const reloadPromptConfigBtn = document.getElementById('reloadPromptConfigBtn');
+const closePromptConfigEditorBtn = document.getElementById('closePromptConfigEditorBtn');
+const copyQrBtn = document.getElementById('copyQrBtn');
+const authStatus = document.getElementById('authStatus');
+const googleLoginBtn = document.getElementById('googleLoginBtn');
 const ADMIN_TOKEN_KEY = 'adminToken';
+const ADMIN_GOOGLE_TOKEN_KEY = 'adminGoogleIdToken';
+const ADMIN_DRAFT_KEY = 'adminDraftV1';
+const DEFAULT_FORM_MESSAGE = '5問以上入力して保存してください。';
+const LOGIN_WAIT_MESSAGE = 'Googleログイン後にクイズ一覧を読み込みます。';
+const DRAFT_SAVE_DEBOUNCE_MS = 1200;
 const PASTE_COLUMNS = [
     'prompt',
     'sentence',
@@ -44,6 +62,14 @@ function getAdminToken() {
     return String(localStorage.getItem(ADMIN_TOKEN_KEY) || '').trim();
 }
 
+function getGoogleIdToken() {
+    return String(localStorage.getItem(ADMIN_GOOGLE_TOKEN_KEY) || '').trim();
+}
+
+function isAppSessionToken(token) {
+    return String(token || '').startsWith('app.');
+}
+
 function applyTokenFromUrl() {
     const params = new URLSearchParams(window.location.search);
     const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
@@ -72,13 +98,211 @@ function ensureAdminToken(force = false) {
     return token;
 }
 
+function decodeJwtPayload(token) {
+    try {
+        const parts = String(token || '').split('.');
+        if (parts.length !== 3) return null;
+        const raw = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        const padded = raw.padEnd(Math.ceil(raw.length / 4) * 4, '=');
+        return JSON.parse(atob(padded));
+    } catch {
+        return null;
+    }
+}
+
+function setAuthStatus(message, type = 'notice') {
+    if (!authStatus) return;
+    authStatus.textContent = message;
+    authStatus.className = `auth-status auth-status-top ${type}`;
+}
+
+function refreshAuthUi() {
+    if (!googleLoginBtn) return;
+    if (state.auth.mode !== 'google') {
+        googleLoginBtn.classList.add('hidden');
+        return;
+    }
+    if (state.auth.loggedIn) {
+        googleLoginBtn.classList.add('hidden');
+    } else {
+        googleLoginBtn.classList.remove('hidden');
+    }
+}
+
+async function exchangeGoogleTokenForSession(idToken) {
+    const token = String(idToken || '').trim();
+    if (!token) {
+        throw new Error('Google認証トークンが見つかりません。');
+    }
+    const res = await fetch('/api/auth/google-exchange', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: token })
+    });
+    const raw = await res.text();
+    const data = raw ? JSON.parse(raw) : {};
+    if (!res.ok) {
+        throw new Error(data?.message || `Googleセッション作成に失敗しました (${res.status})`);
+    }
+    const appToken = String(data?.appToken || '').trim();
+    if (!appToken) {
+        throw new Error('Googleセッション作成に失敗しました。');
+    }
+    return {
+        appToken,
+        email: String(data?.user?.email || '').trim()
+    };
+}
+
+async function setGoogleTokenFromCredential(credential) {
+    const idToken = String(credential || '').trim();
+    if (!idToken) return false;
+    const exchanged = await exchangeGoogleTokenForSession(idToken);
+    localStorage.setItem(ADMIN_GOOGLE_TOKEN_KEY, exchanged.appToken);
+    const email = exchanged.email || (decodeJwtPayload(idToken)?.email || '');
+    state.auth.loggedIn = true;
+    setAuthStatus(`Googleログイン済み\n${email}`, 'success');
+    refreshAuthUi();
+    await loadProtectedData();
+    return true;
+}
+
+async function waitForGoogleLibrary(maxWaitMs = 6000) {
+    const start = Date.now();
+    while (Date.now() - start < maxWaitMs) {
+        if (window.google && window.google.accounts && window.google.accounts.id) {
+            return true;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+    return false;
+}
+
+async function openGoogleLoginPrompt() {
+    if (!state.auth.googleClientId) {
+        setAuthStatus('Google認証の設定が未完了です。', 'error');
+        return;
+    }
+    const loaded = await waitForGoogleLibrary(6000);
+    if (!loaded) {
+        setAuthStatus('GoogleログインAPIを読み込めませんでした。再読み込みしてください。', 'error');
+        return;
+    }
+    setAuthStatus('Googleログイン画面を開いています...', 'notice');
+    let loginSucceeded = false;
+    window.google.accounts.id.initialize({
+        client_id: state.auth.googleClientId,
+        callback: async (response) => {
+            try {
+                const ok = await setGoogleTokenFromCredential(response?.credential);
+                if (!ok) {
+                    state.auth.loggedIn = false;
+                    refreshAuthUi();
+                    setAuthStatus('Googleログインに失敗しました。', 'error');
+                    return;
+                }
+                loginSucceeded = true;
+            } catch (error) {
+                state.auth.loggedIn = false;
+                refreshAuthUi();
+                setAuthStatus(error.message || 'Googleログインに失敗しました。', 'error');
+            }
+        }
+    });
+    window.google.accounts.id.prompt((notification) => {
+        if (!notification) return;
+        if (notification.isNotDisplayed && notification.isNotDisplayed()) {
+            const reason = notification.getNotDisplayedReason ? notification.getNotDisplayedReason() : 'unknown';
+            setAuthStatus(`Googleログイン画面を表示できませんでした: ${reason}`, 'error');
+            return;
+        }
+        if (notification.isSkippedMoment && notification.isSkippedMoment()) {
+            const reason = notification.getSkippedReason ? notification.getSkippedReason() : 'unknown';
+            setAuthStatus(`Googleログインがスキップされました: ${reason}`, 'error');
+            return;
+        }
+        if (notification.isDismissedMoment && notification.isDismissedMoment()) {
+            if (!loginSucceeded) {
+                setAuthStatus('Googleログインがキャンセルされました。', 'notice');
+            }
+        }
+    });
+}
+
+async function loadAuthConfig() {
+    const res = await fetch('/api/auth/config', { cache: 'no-store' });
+    if (!res.ok) {
+        throw new Error('認証設定の取得に失敗しました。');
+    }
+    const config = await res.json();
+    state.auth.mode = config.mode === 'google' ? 'google' : 'token';
+    state.auth.googleClientId = String(config.googleClientId || '').trim();
+
+    if (state.auth.mode === 'google') {
+        if (googleLoginBtn) googleLoginBtn.onclick = openGoogleLoginPrompt;
+        if (!state.auth.googleClientId) {
+            state.auth.loggedIn = false;
+            refreshAuthUi();
+            setAuthStatus('Google認証の設定が未完了です（ADMIN_GOOGLE_CLIENT_ID）。', 'error');
+            return;
+        }
+        const existing = getGoogleIdToken();
+        if (existing) {
+            try {
+                if (!isAppSessionToken(existing)) {
+                    const exchanged = await exchangeGoogleTokenForSession(existing);
+                    localStorage.setItem(ADMIN_GOOGLE_TOKEN_KEY, exchanged.appToken);
+                    state.auth.loggedIn = true;
+                    setAuthStatus(`Googleログイン済み\n${exchanged.email || ''}`, 'success');
+                } else {
+                    state.auth.loggedIn = true;
+                    setAuthStatus('Googleログイン済み', 'success');
+                }
+            } catch (_error) {
+                localStorage.removeItem(ADMIN_GOOGLE_TOKEN_KEY);
+                state.auth.loggedIn = false;
+                setAuthStatus('Googleでログインしてください。', 'notice');
+            }
+        } else {
+            state.auth.loggedIn = false;
+            setAuthStatus('Googleでログインしてください。', 'notice');
+            setMessage('Googleログイン後にクイズ一覧を読み込みます。', 'notice');
+            setPromptConfigStatusMessage('Googleログイン後に読み込みます。', 'notice');
+        }
+        refreshAuthUi();
+    } else {
+        state.auth.loggedIn = true;
+        if (googleLoginBtn) googleLoginBtn.onclick = null;
+        refreshAuthUi();
+        setAuthStatus('トークン認証モード', 'notice');
+    }
+}
+
+function getAuthorizationValue(force = false) {
+    if (state.auth.mode === 'google') {
+        const token = getGoogleIdToken();
+        if (!token) {
+            throw new Error('Googleでログインしてください。');
+        }
+        return token;
+    }
+    return ensureAdminToken(force);
+}
+
 async function adminFetch(url, options = {}, allowRetry = true) {
-    const token = ensureAdminToken(false);
+    const token = getAuthorizationValue(false);
     const headers = new Headers(options.headers || {});
     headers.set('Authorization', `Bearer ${token}`);
     const response = await fetch(url, { ...options, headers });
     if (response.status === 401 && allowRetry) {
-        const refreshed = ensureAdminToken(true);
+        if (state.auth.mode === 'google') {
+            localStorage.removeItem(ADMIN_GOOGLE_TOKEN_KEY);
+            state.auth.loggedIn = false;
+            refreshAuthUi();
+            setAuthStatus('セッションが切れました。Googleで再ログインしてください。', 'error');
+            throw new Error('Googleセッションの有効期限が切れました。右上の「Googleでログイン」を押してください。');
+        }
+        const refreshed = getAuthorizationValue(true);
         const retryHeaders = new Headers(options.headers || {});
         retryHeaders.set('Authorization', `Bearer ${refreshed}`);
         return fetch(url, { ...options, headers: retryHeaders });
@@ -87,11 +311,32 @@ async function adminFetch(url, options = {}, allowRetry = true) {
 }
 
 // Image Modal Logic
-function openImageModal(src) {
+function getRowPreviousAiImageUrl(row) {
+    if (!row) return '';
+    return sanitizeImageUrl(row.dataset.prevAiImageUrl || '');
+}
+
+function clearRowPreviousAiImage(row) {
+    if (!row) return;
+    delete row.dataset.prevAiImageUrl;
+}
+
+function updateImageModalRestoreButton() {
+    const restoreBtn = document.getElementById('restore-prev-image-btn');
+    if (!restoreBtn) return;
+    const row = state.imageModal?.row || null;
+    const canRestore = Boolean(getRowPreviousAiImageUrl(row));
+    restoreBtn.classList.toggle('hidden', !canRestore);
+    restoreBtn.disabled = !canRestore;
+}
+
+function openImageModal(row, src) {
     const overlay = document.getElementById('image-modal-overlay');
     const img = document.getElementById('modal-full-image');
     if (!overlay || !img) return;
+    state.imageModal.row = row || null;
     img.src = src;
+    updateImageModalRestoreButton();
     overlay.classList.add('active');
 }
 
@@ -99,6 +344,8 @@ function closeImageModal() {
     const overlay = document.getElementById('image-modal-overlay');
     const img = document.getElementById('modal-full-image');
     if (!overlay) return;
+    state.imageModal.row = null;
+    updateImageModalRestoreButton();
     overlay.classList.remove('active');
     setTimeout(() => { if (img) img.src = ''; }, 300);
 }
@@ -106,8 +353,26 @@ function closeImageModal() {
 document.addEventListener('DOMContentLoaded', () => {
     const overlay = document.getElementById('image-modal-overlay');
     const closeBtn = document.getElementById('close-image-modal');
+    const restoreBtn = document.getElementById('restore-prev-image-btn');
 
     if (closeBtn) closeBtn.addEventListener('click', closeImageModal);
+    if (restoreBtn) {
+        restoreBtn.addEventListener('click', () => {
+            const row = state.imageModal?.row;
+            if (!row) return;
+            const previousUrl = getRowPreviousAiImageUrl(row);
+            if (!previousUrl) return;
+            const hiddenUrlInput = row.querySelector('.imageUrl');
+            const previewImg = row.querySelector('.image-preview');
+            if (!hiddenUrlInput || !previewImg) return;
+            hiddenUrlInput.value = previousUrl;
+            previewImg.src = previousUrl;
+            clearRowPreviousAiImage(row);
+            hiddenUrlInput.dispatchEvent(new Event('change', { bubbles: true }));
+            setMessage('1つ前の画像に戻しました。', 'notice');
+            openImageModal(row, previousUrl);
+        });
+    }
     if (overlay) {
         overlay.addEventListener('click', (e) => {
             if (e.target === overlay) closeImageModal();
@@ -232,7 +497,22 @@ const SAMPLE_QUESTIONS = [
 ];
 
 const state = {
-    editingQuizId: null
+    editingQuizId: null,
+    suppressDraftSave: false,
+    draftTimer: null,
+    lastCommittedSnapshot: '',
+    imageModal: {
+        row: null
+    },
+    auth: {
+        mode: 'token',
+        googleClientId: '',
+        loggedIn: false
+    },
+    promptConfigs: {
+        question: null,
+        image: null
+    }
 };
 
 async function parseApiResponse(res) {
@@ -352,11 +632,15 @@ function createQuestionRow(index, question = null) {
     const clearImage = () => {
         hiddenUrlInput.value = '';
         previewImg.src = '/images/gen/sample_cleaned.png';
+        clearRowPreviousAiImage(row);
+        if (state.imageModal?.row === row) {
+            updateImageModalRestoreButton();
+        }
         hiddenUrlInput.dispatchEvent(new Event('change', { bubbles: true }));
     };
 
     previewImg.addEventListener('click', () => {
-        openImageModal(previewImg.src);
+        openImageModal(row, previewImg.src);
     });
 
     previewImg.addEventListener('keydown', (e) => {
@@ -405,6 +689,10 @@ function createQuestionRow(index, question = null) {
             if (data.imageUrl) {
                 hiddenUrlInput.value = data.imageUrl;
                 previewImg.src = data.imageUrl;
+                clearRowPreviousAiImage(row);
+                if (state.imageModal?.row === row) {
+                    updateImageModalRestoreButton();
+                }
                 hiddenUrlInput.dispatchEvent(new Event('change', { bubbles: true }));
             }
         } catch (error) {
@@ -559,11 +847,15 @@ function createQuestionRow(index, question = null) {
         btn.textContent = '⏳...';
 
         // Gather context
+        const previewImg = row.querySelector('.image-preview');
+        const currentPreviewSrc = previewImg?.currentSrc || previewImg?.src || '';
         const context = {
             sentence: row.querySelector('.sentence')?.value?.trim() || null,
             correct: null,
             explanation: row.querySelector('.explanation')?.value?.trim() || null,
             additionalPrompt: additionalPrompt?.trim() || null,
+            currentImageUrl: String(currentPreviewSrc || '').trim() || null,
+            sampleImageUrl: '/images/gen/sample_cleaned.png',
         };
         const correctIdx = row.querySelector('.correctIndex')?.value;
         if (correctIdx) {
@@ -571,6 +863,7 @@ function createQuestionRow(index, question = null) {
         }
 
         try {
+            const previousImageUrl = String(row.querySelector('.imageUrl')?.value || '').trim();
             const res = await adminFetch('/api/generate-image', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -582,7 +875,9 @@ function createQuestionRow(index, question = null) {
 
             if (!res.ok) {
                 const errJson = await res.json().catch(() => ({}));
-                throw new Error(errJson.message || '画像生成に失敗しました。');
+                const detail = String(errJson.error || '').trim();
+                const base = String(errJson.message || '画像生成に失敗しました。').trim();
+                throw new Error(detail ? `${base}\n詳細: ${detail}` : base);
             }
 
             const data = await res.json();
@@ -590,8 +885,19 @@ function createQuestionRow(index, question = null) {
                 row.querySelector('.imageUrl').value = data.imageUrl;
                 const preview = row.querySelector('.image-preview');
                 preview.src = data.imageUrl;
+                if (previousImageUrl && previousImageUrl !== data.imageUrl) {
+                    row.dataset.prevAiImageUrl = previousImageUrl;
+                } else {
+                    clearRowPreviousAiImage(row);
+                }
+                if (state.imageModal?.row === row) {
+                    updateImageModalRestoreButton();
+                }
                 // Trigger change event just in case
                 row.querySelector('.imageUrl').dispatchEvent(new Event('change', { bubbles: true }));
+                if (data.warning) {
+                    setMessage(String(data.warning), 'notice');
+                }
             }
         } catch (error) {
             console.error(error);
@@ -758,6 +1064,257 @@ function setMessage(message, type = 'notice') {
     formMessage.className = type;
 }
 
+function getEditorSnapshot() {
+    const draft = collectDraftFromDom();
+    return JSON.stringify({
+        title: String(draft.title || ''),
+        editingQuizId: state.editingQuizId || null,
+        questions: Array.isArray(draft.questions) ? draft.questions : []
+    });
+}
+
+function markEditorCommitted() {
+    state.lastCommittedSnapshot = getEditorSnapshot();
+}
+
+function hasUnsavedEditorChanges() {
+    return getEditorSnapshot() !== state.lastCommittedSnapshot;
+}
+
+function clearAllImageUndoHistory() {
+    Array.from(questionBody.querySelectorAll('tr')).forEach((row) => clearRowPreviousAiImage(row));
+    if (state.imageModal?.row) {
+        updateImageModalRestoreButton();
+    }
+}
+
+function collectDraftFromDom() {
+    const rows = Array.from(questionBody.querySelectorAll('tr'));
+    const questions = rows.map((row) => ({
+        prompt: row.querySelector('.prompt')?.value || '',
+        sentence: row.querySelector('.sentence')?.value || '',
+        choice0: row.querySelector('.choice0')?.value || '',
+        choice1: row.querySelector('.choice1')?.value || '',
+        choice2: row.querySelector('.choice2')?.value || '',
+        correctIndex: row.querySelector('.correctIndex')?.value || '0',
+        explanation: row.querySelector('.explanation')?.value || '',
+        o0Usage: row.querySelector('.o0Usage')?.value || '',
+        o0Example: row.querySelector('.o0Example')?.value || '',
+        o1Usage: row.querySelector('.o1Usage')?.value || '',
+        o1Example: row.querySelector('.o1Example')?.value || '',
+        imageUrl: row.querySelector('.imageUrl')?.value || ''
+    }));
+    return {
+        savedAt: new Date().toISOString(),
+        title: titleInput?.value || '',
+        editingQuizId: state.editingQuizId || null,
+        questions
+    };
+}
+
+function saveDraftNow() {
+    if (!questionBody || state.suppressDraftSave) return;
+    try {
+        const draft = collectDraftFromDom();
+        localStorage.setItem(ADMIN_DRAFT_KEY, JSON.stringify(draft));
+    } catch (_error) {
+        // ignore localStorage write errors
+    }
+}
+
+function scheduleDraftSave() {
+    if (state.suppressDraftSave) return;
+    if (state.draftTimer) {
+        clearTimeout(state.draftTimer);
+    }
+    state.draftTimer = setTimeout(() => {
+        saveDraftNow();
+        state.draftTimer = null;
+    }, DRAFT_SAVE_DEBOUNCE_MS);
+}
+
+function clearDraft() {
+    localStorage.removeItem(ADMIN_DRAFT_KEY);
+}
+
+function applyDraftToDom(draft) {
+    if (!draft || typeof draft !== 'object') return false;
+    const questions = Array.isArray(draft.questions) ? draft.questions : [];
+    state.suppressDraftSave = true;
+    try {
+        setEditMode(null);
+        titleInput.value = String(draft.title || '');
+        const rowCount = Math.max(5, questions.length || 0);
+        resetQuestionRows(rowCount);
+        const rows = Array.from(questionBody.querySelectorAll('tr'));
+        questions.forEach((q, idx) => {
+            const row = rows[idx];
+            if (!row) return;
+            row.querySelector('.prompt').value = String(q.prompt || '');
+            row.querySelector('.sentence').value = String(q.sentence || '');
+            row.querySelector('.choice0').value = String(q.choice0 || '');
+            row.querySelector('.choice1').value = String(q.choice1 || '');
+            row.querySelector('.choice2').value = String(q.choice2 || '');
+            row.querySelector('.correctIndex').value = String(q.correctIndex || '0');
+            row.querySelector('.explanation').value = String(q.explanation || '');
+            row.querySelector('.o0Usage').value = String(q.o0Usage || '');
+            row.querySelector('.o0Example').value = String(q.o0Example || '');
+            row.querySelector('.o1Usage').value = String(q.o1Usage || '');
+            row.querySelector('.o1Example').value = String(q.o1Example || '');
+            const imageUrl = sanitizeImageUrl(q.imageUrl);
+            row.querySelector('.imageUrl').value = imageUrl;
+            const preview = row.querySelector('.image-preview');
+            preview.src = imageUrl || '/images/gen/sample_cleaned.png';
+            row.querySelector('.correctIndex').dispatchEvent(new Event('change'));
+        });
+        clearAllImageUndoHistory();
+        setMessage('未保存の下書きを復元しました。', 'notice');
+        return true;
+    } finally {
+        state.suppressDraftSave = false;
+    }
+}
+
+function restoreDraftIfAny() {
+    const raw = String(localStorage.getItem(ADMIN_DRAFT_KEY) || '').trim();
+    if (!raw) return false;
+    let draft;
+    try {
+        draft = JSON.parse(raw);
+    } catch (_error) {
+        return false;
+    }
+    const savedAt = String(draft?.savedAt || '');
+    const label = savedAt ? new Date(savedAt).toLocaleString('ja-JP') : '不明';
+    const shouldRestore = window.confirm(`未保存の下書きがあります（${label}）。復元しますか？`);
+    if (shouldRestore) {
+        applyDraftToDom(draft);
+        return true;
+    }
+    return false;
+}
+
+function setPromptConfigStatusMessage(message, type = 'notice') {
+    if (!promptConfigStatus) return;
+    promptConfigStatus.textContent = message;
+    promptConfigStatus.className = type;
+}
+
+function getPromptConfigLabel(type) {
+    return type === 'image' ? '画像生成用' : '設問生成用';
+}
+
+function openPromptConfigEditor(type) {
+    if (!promptConfigEditorPanel || !promptConfigTypeSelect) return;
+    if (!type) {
+        promptConfigEditorPanel.classList.add('hidden');
+        promptConfigTypeSelect.value = '';
+        return;
+    }
+    promptConfigTypeSelect.value = type;
+    promptConfigEditorPanel.classList.remove('hidden');
+    if (promptConfigEditorTitle) {
+        promptConfigEditorTitle.textContent = `${getPromptConfigLabel(type)} YAML編集`;
+    }
+}
+
+function renderPromptConfigEditor() {
+    if (!promptConfigTypeSelect || !promptConfigYaml) return;
+    const type = promptConfigTypeSelect.value;
+    if (!type) {
+        openPromptConfigEditor('');
+        setPromptConfigStatusMessage('対象を選択してください。', 'notice');
+        return;
+    }
+    openPromptConfigEditor(type);
+    const record = state.promptConfigs[type];
+    if (!record) {
+        promptConfigYaml.value = '';
+        setPromptConfigStatusMessage('設定が見つかりません。', 'error');
+        return;
+    }
+    promptConfigYaml.value = record.yamlText || '';
+    const suffix = record.isDefault ? '（初期値）' : `（最終更新: ${new Date(record.updatedAt).toLocaleString('ja-JP')}）`;
+    setPromptConfigStatusMessage(`${getPromptConfigLabel(type)}を表示中 ${suffix}`, 'notice');
+}
+
+async function loadPromptConfigs() {
+    if (!promptConfigTypeSelect || !promptConfigYaml) return;
+    const selectedType = promptConfigTypeSelect.value;
+    if (selectedType) {
+        setPromptConfigStatusMessage('プロンプト設定を読み込み中...', 'notice');
+    }
+    try {
+        const res = await adminFetch('/api/prompt-configs', { cache: 'no-store' });
+        const data = await parseApiResponse(res);
+        state.promptConfigs.question = data.question;
+        state.promptConfigs.image = data.image;
+        if (selectedType) {
+            renderPromptConfigEditor();
+        }
+    } catch (error) {
+        if (selectedType) {
+            setPromptConfigStatusMessage(error.message, 'error');
+        }
+    }
+}
+
+async function savePromptConfig() {
+    if (!promptConfigTypeSelect || !promptConfigYaml) return;
+    const type = promptConfigTypeSelect.value;
+    if (!type) {
+        setPromptConfigStatusMessage('対象を選択してください。', 'error');
+        return false;
+    }
+    const yaml = promptConfigYaml.value.trim();
+    if (!yaml) {
+        setPromptConfigStatusMessage('YAMLが空です。', 'error');
+        return false;
+    }
+    savePromptConfigBtn.disabled = true;
+    setPromptConfigStatusMessage('保存中...', 'notice');
+    try {
+        const res = await adminFetch(`/api/prompt-configs/${type}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ yaml })
+        });
+        const record = await parseApiResponse(res);
+        state.promptConfigs[type] = record;
+        renderPromptConfigEditor();
+        setPromptConfigStatusMessage('YAMLを保存しました。次のAI生成から反映されます。', 'success');
+        return true;
+    } catch (error) {
+        setPromptConfigStatusMessage(error.message, 'error');
+        return false;
+    } finally {
+        savePromptConfigBtn.disabled = false;
+    }
+}
+
+async function resetPromptConfig() {
+    if (!promptConfigTypeSelect || !promptConfigYaml) return;
+    const type = promptConfigTypeSelect.value;
+    if (!type) {
+        setPromptConfigStatusMessage('対象を選択してください。', 'error');
+        return;
+    }
+    if (!window.confirm('この設定を初期値に戻します。よろしいですか？')) return;
+    resetPromptConfigBtn.disabled = true;
+    setPromptConfigStatusMessage('初期値に戻しています...', 'notice');
+    try {
+        const res = await adminFetch(`/api/prompt-configs/${type}/reset`, { method: 'POST' });
+        const record = await parseApiResponse(res);
+        state.promptConfigs[type] = record;
+        renderPromptConfigEditor();
+        setPromptConfigStatusMessage('初期値に戻しました。', 'success');
+    } catch (error) {
+        setPromptConfigStatusMessage(error.message, 'error');
+    } finally {
+        resetPromptConfigBtn.disabled = false;
+    }
+}
+
 function setEditMode(quiz = null) {
     if (!quiz) {
         state.editingQuizId = null;
@@ -783,7 +1340,57 @@ function renderShareResult(data) {
     link.href = v2Url;
     link.textContent = v2Url;
     qrImage.src = data.qrDataUrl;
+    if (copyQrBtn) {
+        copyQrBtn.disabled = false;
+    }
     resultWrap.classList.remove('hidden');
+}
+
+async function copyQrCode() {
+    const qrImage = document.getElementById('qrImage');
+    const link = document.getElementById('quizUrlLink');
+    const src = String(qrImage?.src || '').trim();
+    if (!src) {
+        setMessage('コピー対象のQRコードがありません。', 'error');
+        return;
+    }
+    try {
+        if (navigator.clipboard && window.ClipboardItem) {
+            const blob = await fetch(src).then((r) => r.blob());
+            await navigator.clipboard.write([new ClipboardItem({ [blob.type || 'image/png']: blob })]);
+            setMessage('QRコード画像をコピーしました。', 'success');
+            return;
+        }
+        throw new Error('image clipboard unsupported');
+    } catch (_error) {
+        const fallbackText = String(link?.href || '').trim();
+        if (fallbackText && navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(fallbackText);
+            setMessage('画像コピーに失敗したため、クイズURLをコピーしました。', 'notice');
+            return;
+        }
+        setMessage('コピーに失敗しました。', 'error');
+    }
+}
+
+async function submitQuizSaveRequest(endpoint, method, payload, skipAuthRetry = false) {
+    return adminFetch(endpoint, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    }, skipAuthRetry);
+}
+
+function promptNewQuizTitle(currentTitle, message, sameTitleErrorMessage) {
+    const suggested = currentTitle ? `${currentTitle} コピー` : '';
+    const nextTitle = String(window.prompt(message, suggested) || '').trim();
+    if (!nextTitle) {
+        return { canceled: true, title: currentTitle };
+    }
+    if (nextTitle === currentTitle) {
+        throw new Error(sameTitleErrorMessage);
+    }
+    return { canceled: false, title: nextTitle };
 }
 
 async function saveQuiz() {
@@ -791,26 +1398,79 @@ async function saveQuiz() {
     setMessage('保存中...');
 
     try {
-        const title = titleInput.value.trim();
+        let title = titleInput.value.trim();
         const questions = readQuestions();
         const isEdit = Boolean(state.editingQuizId);
-        const endpoint = isEdit ? `/api/quizzes/${state.editingQuizId}` : '/api/quizzes';
-        const method = isEdit ? 'PUT' : 'POST';
-
-        const res = await adminFetch(endpoint, {
-            method,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ title, questions })
-        });
-        const data = await parseApiResponse(res);
+        let endpoint = '/api/quizzes';
+        let method = 'POST';
+        let saveMode = 'new';
 
         if (isEdit) {
+            const overwrite = window.confirm('保存方法を選択してください。\nOK: 上書き保存\nキャンセル: 新規保存（別名）');
+            if (overwrite) {
+                endpoint = `/api/quizzes/${state.editingQuizId}`;
+                method = 'PUT';
+                saveMode = 'overwrite';
+            } else {
+                const prompted = promptNewQuizTitle(
+                    title,
+                    '新規保存するタイトルを入力してください（同名不可）',
+                    '新規保存では、編集中タイトルと同名は使用できません。別名を指定してください。'
+                );
+                if (prompted.canceled) {
+                    setMessage('保存をキャンセルしました。', 'notice');
+                    return;
+                }
+                title = prompted.title;
+                titleInput.value = title;
+            }
+        }
+
+        let res = await submitQuizSaveRequest(endpoint, method, { title, questions }, false);
+
+        if (res.status === 409) {
+            const conflictBody = await res.json().catch(() => ({}));
+            const conflictQuizId = String(conflictBody?.conflictQuizId || '').trim();
+            if (conflictQuizId) {
+                const overwrite = window.confirm('同名タイトルのクイズが既にあります。\nOK: 既存を上書き保存\nキャンセル: 別名で新規保存');
+                if (overwrite) {
+                    saveMode = 'overwrite';
+                    endpoint = `/api/quizzes/${conflictQuizId}`;
+                    method = 'PUT';
+                    res = await submitQuizSaveRequest(endpoint, method, { title, questions });
+                } else {
+                    const prompted = promptNewQuizTitle(
+                        title,
+                        '新規保存するタイトルを入力してください（同名不可）',
+                        '別名保存では、同名を指定できません。別のタイトルを入力してください。'
+                    );
+                    if (prompted.canceled) {
+                        setMessage('保存をキャンセルしました。', 'notice');
+                        return;
+                    }
+                    title = prompted.title;
+                    titleInput.value = title;
+                    endpoint = '/api/quizzes';
+                    method = 'POST';
+                    saveMode = 'new';
+                    res = await submitQuizSaveRequest(endpoint, method, { title, questions });
+                }
+            }
+        }
+
+        const data = await parseApiResponse(res);
+
+        if (saveMode === 'overwrite') {
             setMessage('更新しました。QRコードを再表示しています。', 'success');
         } else {
-            setMessage('保存しました。QRコードを表示しています。', 'success');
+            setMessage('新規保存しました。QRコードを表示しています。', 'success');
+            setEditMode(null);
         }
 
         renderShareResult(data);
+        clearAllImageUndoHistory();
+        clearDraft();
+        markEditorCommitted();
         await loadQuizList();
     } catch (error) {
         setMessage(error.message, 'error');
@@ -827,7 +1487,10 @@ async function editQuiz(quizId) {
         titleInput.value = data.title;
         questionBody.innerHTML = '';
         data.questions.forEach((q) => addRow(q));
+        clearAllImageUndoHistory();
         setEditMode(data);
+        markEditorCommitted();
+        scheduleDraftSave();
         setMessage('クイズを読み込みました。内容を編集して更新してください。', 'notice');
         window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (error) {
@@ -839,6 +1502,9 @@ function cancelEdit() {
     setEditMode(null);
     titleInput.value = '';
     resetQuestionRows(5);
+    clearAllImageUndoHistory();
+    clearDraft();
+    markEditorCommitted();
     setMessage('編集中の内容を破棄し、新規作成モードに戻りました。', 'notice');
 }
 
@@ -847,6 +1513,8 @@ function loadSampleQuestions() {
     titleInput.value = 'オノマトペ v2（サンプル）';
     questionBody.innerHTML = '';
     SAMPLE_QUESTIONS.forEach((q) => addRow(q));
+    clearAllImageUndoHistory();
+    scheduleDraftSave();
     setMessage('サンプル問題（全12項目）を読み込みました。', 'notice');
 }
 
@@ -953,15 +1621,99 @@ async function loadQuizList() {
     });
 }
 
-addRowBtn.addEventListener('click', () => addRow());
-loadSampleBtn.addEventListener('click', loadSampleQuestions);
+function hasGoogleSession() {
+    return Boolean(getGoogleIdToken());
+}
+
+async function loadProtectedData() {
+    if (state.auth.mode === 'google' && !hasGoogleSession()) {
+        return;
+    }
+    await loadQuizList();
+    await loadPromptConfigs();
+    if (formMessage) {
+        const current = String(formMessage.textContent || '').trim();
+        if (!current || current === LOGIN_WAIT_MESSAGE) {
+            setMessage(DEFAULT_FORM_MESSAGE, 'notice');
+        }
+    }
+}
+
+async function handlePromptConfigTypeChange() {
+    if (!promptConfigTypeSelect) return;
+    const type = promptConfigTypeSelect.value;
+    if (!type) {
+        openPromptConfigEditor('');
+        return;
+    }
+    openPromptConfigEditor(type);
+    if (!state.promptConfigs[type]) {
+        await loadPromptConfigs();
+    }
+    renderPromptConfigEditor();
+    if (promptConfigYaml) {
+        setTimeout(() => promptConfigYaml.focus(), 0);
+    }
+}
+
+addRowBtn.addEventListener('click', () => {
+    addRow();
+    scheduleDraftSave();
+});
+if (loadSampleBtn) loadSampleBtn.addEventListener('click', loadSampleQuestions);
 saveQuizBtn.addEventListener('click', saveQuiz);
 cancelEditBtn.addEventListener('click', cancelEdit);
+if (backToLpBtn) {
+    backToLpBtn.addEventListener('click', () => {
+        if (hasUnsavedEditorChanges()) {
+            const proceed = window.confirm('未保存の編集中データがあります。保存せずにホーム画面へ戻りますか？');
+            if (!proceed) return;
+        }
+        location.href = '/';
+    });
+}
 questionBody.addEventListener('paste', handleSheetPaste);
+questionBody.addEventListener('input', scheduleDraftSave);
+questionBody.addEventListener('change', scheduleDraftSave);
+if (titleInput) {
+    titleInput.addEventListener('input', scheduleDraftSave);
+}
+if (promptConfigTypeSelect) promptConfigTypeSelect.addEventListener('change', handlePromptConfigTypeChange);
+if (savePromptConfigBtn) savePromptConfigBtn.addEventListener('click', savePromptConfig);
+if (resetPromptConfigBtn) resetPromptConfigBtn.addEventListener('click', resetPromptConfig);
+if (reloadPromptConfigBtn) reloadPromptConfigBtn.addEventListener('click', loadPromptConfigs);
+if (copyQrBtn) copyQrBtn.addEventListener('click', copyQrCode);
+if (closePromptConfigEditorBtn) {
+    closePromptConfigEditorBtn.addEventListener('click', async () => {
+        if (!promptConfigTypeSelect) return;
+        if (promptConfigTypeSelect.value) {
+            const ok = await savePromptConfig();
+            if (!ok) return;
+        }
+        promptConfigTypeSelect.value = '';
+        openPromptConfigEditor('');
+        setPromptConfigStatusMessage('保存して編集を終了しました。', 'success');
+    });
+}
 
 applyTokenFromUrl();
 resetQuestionRows(5);
-loadQuizList();
+const restored = restoreDraftIfAny();
+if (!restored) {
+    markEditorCommitted();
+}
+openPromptConfigEditor('');
+window.addEventListener('beforeunload', saveDraftNow);
+async function initializeAdminPage() {
+    try {
+        await loadAuthConfig();
+        await loadProtectedData();
+    } catch (error) {
+        setMessage(error.message, 'error');
+        setPromptConfigStatusMessage(error.message, 'error');
+    }
+}
+initializeAdminPage();
 
 // --------------
 // Learner Access Log Modal Logic
