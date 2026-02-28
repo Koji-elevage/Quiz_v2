@@ -198,6 +198,14 @@ async function initDb() {
         created_by VARCHAR(255) NOT NULL
       )
     `);
+    await mysqlPool.execute(`
+      CREATE TABLE IF NOT EXISTS image_assets (
+        path VARCHAR(255) PRIMARY KEY,
+        mime_type VARCHAR(128) NOT NULL,
+        data LONGBLOB NOT NULL,
+        created_at VARCHAR(40) NOT NULL
+      )
+    `);
     return;
   }
 
@@ -231,6 +239,13 @@ async function initDb() {
       created_at TEXT NOT NULL,
       created_by TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS image_assets (
+      path TEXT PRIMARY KEY,
+      mime_type TEXT NOT NULL,
+      data BLOB NOT NULL,
+      created_at TEXT NOT NULL
+    );
   `);
 }
 
@@ -257,6 +272,50 @@ async function dbRun(sql, params = []) {
   }
   const result = sqliteDb.prepare(sql).run(...params);
   return { changes: result.changes, lastInsertRowid: result.lastInsertRowid };
+}
+
+async function getImageAsset(assetPath) {
+  const normalized = String(assetPath || '').trim();
+  if (!normalized) return null;
+  return dbGet('SELECT path, mime_type, data, created_at FROM image_assets WHERE path = ?', [normalized]);
+}
+
+async function saveImageAsset(assetPath, mimeType, buffer) {
+  const normalized = String(assetPath || '').trim();
+  if (!normalized || !Buffer.isBuffer(buffer) || !buffer.length) return;
+  const safeMimeType = String(mimeType || 'image/jpeg').trim() || 'image/jpeg';
+  const now = new Date().toISOString();
+  if (DB_DRIVER === 'mysql') {
+    await dbRun(`
+      INSERT INTO image_assets (path, mime_type, data, created_at)
+      VALUES (?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        mime_type = VALUES(mime_type),
+        data = VALUES(data),
+        created_at = VALUES(created_at)
+    `, [normalized, safeMimeType, buffer, now]);
+    return;
+  }
+  await dbRun(`
+    INSERT INTO image_assets (path, mime_type, data, created_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(path) DO UPDATE SET
+      mime_type = excluded.mime_type,
+      data = excluded.data,
+      created_at = excluded.created_at
+  `, [normalized, safeMimeType, buffer, now]);
+}
+
+async function persistGeneratedImage(filename, buffer, mimeType = 'image/jpeg') {
+  const safeName = path.basename(String(filename || '').trim());
+  if (!safeName) {
+    throw new Error('画像ファイル名が不正です。');
+  }
+  const assetPath = `/images/gen/${safeName}`;
+  const filepath = path.join(genImagesDir, safeName);
+  fs.writeFileSync(filepath, buffer);
+  await saveImageAsset(assetPath, mimeType, buffer);
+  return assetPath;
 }
 
 function isAuthorizedAdmin(req) {
@@ -505,6 +564,28 @@ app.use((_req, res, next) => {
 
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+app.get('/images/gen/:filename', async (req, res, next) => {
+  try {
+    const safeName = path.basename(String(req.params.filename || '').trim());
+    if (!safeName) {
+      return res.status(404).end();
+    }
+    const assetPath = `/images/gen/${safeName}`;
+    const asset = await getImageAsset(assetPath);
+    if (!asset?.data) {
+      return next();
+    }
+    const mimeType = String(asset.mime_type || 'image/jpeg').trim() || 'image/jpeg';
+    const data = Buffer.isBuffer(asset.data) ? asset.data : Buffer.from(asset.data);
+    res.set('Content-Type', mimeType);
+    res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    return res.status(200).send(data);
+  } catch (error) {
+    console.error('Failed to serve image asset:', error);
+    return res.status(500).end();
+  }
+});
 
 app.get('/api/auth/config', (_req, res) => {
   if (AUTH_MODE === 'google') {
@@ -1345,8 +1426,16 @@ async function loadReferenceImageBuffer(imageUrl) {
   if (!imagePath) return null;
   const absolute = path.join(__dirname, 'public', imagePath.replace(/^\//, ''));
   if (!absolute.startsWith(path.join(__dirname, 'public'))) return null;
-  if (!fs.existsSync(absolute)) return null;
-  const original = fs.readFileSync(absolute);
+  let original = null;
+  if (fs.existsSync(absolute)) {
+    original = fs.readFileSync(absolute);
+  } else {
+    const asset = await getImageAsset(imagePath);
+    if (asset?.data) {
+      original = Buffer.isBuffer(asset.data) ? asset.data : Buffer.from(asset.data);
+    }
+  }
+  if (!original) return null;
   return sharp(original)
     .resize({ width: 768, height: 768, fit: sharp.fit.inside })
     .jpeg({ quality: 80 })
@@ -1955,9 +2044,8 @@ app.post('/api/generate-image', requireAdminAuth, imageAiRateLimiter, async (req
       bestCandidateReason = hasFrame && hasText ? '枠線と文字混入' : (hasFrame ? '枠線' : '文字混入');
       if (!hasFrame && !hasText) {
         const filename = `${crypto.randomUUID()}.jpeg`;
-        const filepath = path.join(genImagesDir, filename);
-        fs.writeFileSync(filepath, normalizedBuffer);
-        return res.status(200).json({ imageUrl: `/images/gen/${filename}` });
+        const imageUrl = await persistGeneratedImage(filename, normalizedBuffer, 'image/jpeg');
+        return res.status(200).json({ imageUrl });
       }
 
       if (attempt < IMAGE_GEN_MAX_ATTEMPTS) {
@@ -1967,10 +2055,9 @@ app.post('/api/generate-image', requireAdminAuth, imageAiRateLimiter, async (req
 
       if (bestCandidateBuffer) {
         const filename = `${crypto.randomUUID()}.jpeg`;
-        const filepath = path.join(genImagesDir, filename);
-        fs.writeFileSync(filepath, bestCandidateBuffer);
+        const imageUrl = await persistGeneratedImage(filename, bestCandidateBuffer, 'image/jpeg');
         return res.status(200).json({
-          imageUrl: `/images/gen/${filename}`,
+          imageUrl,
           warning: `自動検査で${bestCandidateReason}を検出しましたが、候補画像を返しました。必要なら再生成してください。`
         });
       }
@@ -1989,17 +2076,15 @@ app.post('/api/generate-image', requireAdminAuth, imageAiRateLimiter, async (req
         const hasText = await hasReadableTextInImage(normalizedBuffer);
         if (hasFrame || hasText) {
           const filename = `${crypto.randomUUID()}.jpeg`;
-          const filepath = path.join(genImagesDir, filename);
-          fs.writeFileSync(filepath, normalizedBuffer);
+          const imageUrl = await persistGeneratedImage(filename, normalizedBuffer, 'image/jpeg');
           return res.status(200).json({
-            imageUrl: `/images/gen/${filename}`,
+            imageUrl,
             warning: 'Gemini安全フィルタ回避後の画像に枠線または文字混入の疑いがあります。必要なら再生成してください。'
           });
         }
         const filename = `${crypto.randomUUID()}.jpeg`;
-        const filepath = path.join(genImagesDir, filename);
-        fs.writeFileSync(filepath, normalizedBuffer);
-        return res.status(200).json({ imageUrl: `/images/gen/${filename}` });
+        const imageUrl = await persistGeneratedImage(filename, normalizedBuffer, 'image/jpeg');
+        return res.status(200).json({ imageUrl });
       }
       throw new Error('Geminiの安全フィルタで画像が除外されました。内容を穏やかな日常場面に変更して再試行してください。');
     }
@@ -2021,10 +2106,7 @@ app.post('/api/upload-image', requireAdminAuth, uploadRateLimiter, upload.single
     }
 
     const filename = `${crypto.randomUUID()}.jpeg`;
-    const filepath = path.join(genImagesDir, filename);
-
-    // Process image using sharp: resize to max width 800, crop to 4:3, convert to JPEG
-    await sharp(req.file.buffer)
+    const processedBuffer = await sharp(req.file.buffer)
       .resize({
         width: 800,
         height: 600,
@@ -2032,9 +2114,9 @@ app.post('/api/upload-image', requireAdminAuth, uploadRateLimiter, upload.single
         position: sharp.strategy.entropy
       })
       .jpeg({ quality: 80 })
-      .toFile(filepath);
+      .toBuffer();
 
-    const imageUrl = `/images/gen/${filename}`;
+    const imageUrl = await persistGeneratedImage(filename, processedBuffer, 'image/jpeg');
     return res.status(200).json({ imageUrl });
 
   } catch (error) {

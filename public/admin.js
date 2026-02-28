@@ -62,17 +62,16 @@ function sanitizeImageUrl(value) {
 
 function attachBrokenImageFallback(row, previewImg, hiddenUrlInput) {
     if (!previewImg || !hiddenUrlInput) return;
+    previewImg.addEventListener('load', () => {
+        delete previewImg.dataset.fallbackApplied;
+        delete previewImg.dataset.brokenImageUrl;
+    });
     previewImg.addEventListener('error', () => {
         if (previewImg.dataset.fallbackApplied === '1') return;
         previewImg.dataset.fallbackApplied = '1';
-        hiddenUrlInput.value = '';
+        previewImg.dataset.brokenImageUrl = String(hiddenUrlInput.value || '').trim();
         previewImg.src = SAMPLE_IMAGE_URL;
-        clearRowPreviousAiImage(row);
-        if (state.imageModal?.row === row) {
-            updateImageModalRestoreButton();
-        }
-        hiddenUrlInput.dispatchEvent(new Event('change', { bubbles: true }));
-        setMessage('表示できない画像を検出したため、サンプル画像に切り替えました。必要ならAI生成またはUPで再設定してください。', 'notice');
+        setMessage('画像の表示に失敗したため、画面上はサンプル画像を表示しています。保存済みの画像参照は保持されています。', 'notice');
     });
 }
 
