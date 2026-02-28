@@ -1829,19 +1829,26 @@ initializeAdminPage();
 // --------------
 const logModalOverlay = document.getElementById('log-modal-overlay');
 const closeLogModalBtn = document.getElementById('closeLogModalBtn');
+const clearAllLogsBtn = document.getElementById('clearAllLogsBtn');
 const logTableBody = document.getElementById('logTableBody');
 const logModalTitle = document.getElementById('logModalTitle');
+const logModalState = {
+    quizId: '',
+    quizTitle: ''
+};
 
 closeLogModalBtn.addEventListener('click', () => {
     logModalOverlay.classList.remove('active');
 });
 
 async function showAccessLog(quizId, quizTitle) {
+    logModalState.quizId = String(quizId || '');
+    logModalState.quizTitle = String(quizTitle || '');
     logModalTitle.textContent = `「${quizTitle}」のアクセスログ`;
     logTableBody.innerHTML = '';
     const loadingRow = document.createElement('tr');
     const loadingTd = document.createElement('td');
-    loadingTd.colSpan = 4;
+    loadingTd.colSpan = 5;
     loadingTd.className = 'td-center';
     loadingTd.textContent = '読み込み中...';
     loadingRow.appendChild(loadingTd);
@@ -1857,7 +1864,7 @@ async function showAccessLog(quizId, quizTitle) {
             logTableBody.innerHTML = '';
             const emptyRow = document.createElement('tr');
             const emptyTd = document.createElement('td');
-            emptyTd.colSpan = 4;
+            emptyTd.colSpan = 5;
             emptyTd.className = 'td-center';
             emptyTd.textContent = 'まだプレイ記録がありません';
             emptyRow.appendChild(emptyTd);
@@ -1883,18 +1890,63 @@ async function showAccessLog(quizId, quizTitle) {
             dateTd.style.fontSize = '12px';
             dateTd.style.color = '#64748b';
             dateTd.textContent = dateStr;
-            tr.append(learnerTd, playTd, scoreTd, dateTd);
+            const actionTd = document.createElement('td');
+            actionTd.className = 'td-center';
+            const deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.className = 'secondary';
+            deleteBtn.textContent = '削除';
+            deleteBtn.addEventListener('click', async () => {
+                const learnerName = String(log.learner_name || '').trim();
+                if (!learnerName) return;
+                const ok = window.confirm(`「${learnerName}」のログを削除しますか？`);
+                if (!ok) return;
+                try {
+                    deleteBtn.disabled = true;
+                    await adminFetch(`/api/quizzes/${encodeURIComponent(quizId)}/logs/${encodeURIComponent(learnerName)}`, {
+                        method: 'DELETE'
+                    });
+                    setMessage('学習者ログを削除しました。', 'success');
+                    await showAccessLog(quizId, quizTitle);
+                } catch (error) {
+                    setMessage(error.message || 'ログ削除に失敗しました。', 'error');
+                    deleteBtn.disabled = false;
+                }
+            });
+            actionTd.appendChild(deleteBtn);
+            tr.append(learnerTd, playTd, scoreTd, dateTd, actionTd);
             logTableBody.appendChild(tr);
         });
     } catch (err) {
         logTableBody.innerHTML = '';
         const errRow = document.createElement('tr');
         const errTd = document.createElement('td');
-        errTd.colSpan = 4;
+        errTd.colSpan = 5;
         errTd.className = 'td-center';
         errTd.style.color = 'red';
         errTd.textContent = err.message;
         errRow.appendChild(errTd);
         logTableBody.appendChild(errRow);
     }
+}
+
+if (clearAllLogsBtn) {
+    clearAllLogsBtn.addEventListener('click', async () => {
+        const quizId = String(logModalState.quizId || '').trim();
+        if (!quizId) return;
+        const ok = window.confirm('このクイズの学習者ログをすべて削除しますか？');
+        if (!ok) return;
+        try {
+            clearAllLogsBtn.disabled = true;
+            await adminFetch(`/api/quizzes/${encodeURIComponent(quizId)}/logs`, {
+                method: 'DELETE'
+            });
+            setMessage('このクイズの学習者ログを全削除しました。', 'success');
+            await showAccessLog(logModalState.quizId, logModalState.quizTitle);
+        } catch (error) {
+            setMessage(error.message || 'ログ全削除に失敗しました。', 'error');
+        } finally {
+            clearAllLogsBtn.disabled = false;
+        }
+    });
 }

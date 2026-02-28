@@ -1576,6 +1576,38 @@ app.get('/api/quizzes/:id/logs', requireAdminAuth, async (req, res) => {
   }
 });
 
+app.delete('/api/quizzes/:id/logs/:learnerName', requireAdminAuth, async (req, res) => {
+  const quizId = String(req.params.id || '').trim();
+  const learnerName = String(decodeURIComponent(req.params.learnerName || '')).trim();
+  if (!quizId || !learnerName) {
+    return res.status(400).json({ message: '削除対象が指定されていません。' });
+  }
+  try {
+    const result = await dbRun('DELETE FROM quiz_logs WHERE quiz_id = ? AND learner_name = ?', [quizId, learnerName]);
+    if (!result.changes) {
+      return res.status(404).json({ message: '削除対象のログが見つかりません。' });
+    }
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    console.error('Failed to delete learner log:', error);
+    return res.status(500).json({ message: 'ログ削除に失敗しました。' });
+  }
+});
+
+app.delete('/api/quizzes/:id/logs', requireAdminAuth, async (req, res) => {
+  const quizId = String(req.params.id || '').trim();
+  if (!quizId) {
+    return res.status(400).json({ message: '削除対象が指定されていません。' });
+  }
+  try {
+    await dbRun('DELETE FROM quiz_logs WHERE quiz_id = ?', [quizId]);
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    console.error('Failed to delete all logs:', error);
+    return res.status(500).json({ message: 'ログ全削除に失敗しました。' });
+  }
+});
+
 app.get('/api/prompt-configs', requireAdminAuth, async (_req, res) => {
   try {
     const [question, image] = await Promise.all([

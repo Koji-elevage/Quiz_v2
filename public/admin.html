@@ -122,6 +122,9 @@
                             <img id="qrImage" alt="クイズQRコード" />
                             <button type="button" class="secondary" id="copyQrBtn" disabled>QRコードをコピー</button>
                         </div>
+                        <p class="notice" style="margin-top: 10px;">
+                            学習者にはQRコードを読み取り、ChromeかSafariで開くように伝えてください。
+                        </p>
                     </div>
                 </div>
             </div>
@@ -219,16 +222,18 @@
                             <th class="td-center">プレイ回数</th>
                             <th class="td-center">最終スコア</th>
                             <th>最終プレイ日時</th>
+                            <th class="td-center">操作</th>
                         </tr>
                     </thead>
                     <tbody id="logTableBody">
                         <tr>
-                            <td colspan="4" class="td-center">データがありません</td>
+                            <td colspan="5" class="td-center">データがありません</td>
                         </tr>
                     </tbody>
                 </table>
             </div>
-            <div style="display: flex; justify-content: flex-end; margin-top: 12px;">
+            <div style="display: flex; justify-content: space-between; margin-top: 12px;">
+                <button type="button" class="secondary" id="clearAllLogsBtn">このクイズのログを全削除</button>
                 <button type="button" class="secondary" id="closeLogModalBtn">閉じる</button>
             </div>
         </div>
