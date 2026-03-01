@@ -12,13 +12,14 @@
 <body class="sample-lp-page ui-v2">
   <main class="lpv2-shell">
     <section class="lpv2-card">
-      <h1 class="lpv2-title">教師・管理者ログイン</h1>
-      <p class="lpv2-subtitle">Googleアカウントでログインしてください。</p>
+      <h1 id="teacherLoginTitle" class="lpv2-title">教師・管理者ログイン</h1>
+      <p id="teacherLoginSubtitle" class="lpv2-subtitle">Googleアカウントで認証すると、教師画面または管理者画面へ進めます。</p>
       <div id="loginPanel" class="lpv2-guide">
         <p id="teacherLoginStatus" class="lpv2-help">ログイン待ち</p>
         <div class="lpv2-owner-actions">
-          <button id="teacherGoogleLoginBtn" type="button" class="lpv2-start-btn">Googleでログイン</button>
-          <a href="/" class="lpv2-admin-link">説明ページへ戻る</a>
+          <div id="teacherGoogleLoginMount" class="google-login-mount"></div>
+          <button id="teacherGoogleLoginBtn" type="button" class="lpv2-start-btn hidden">Googleでログイン</button>
+          <a href="/" class="lpv2-admin-link">ホーム画面へ戻る</a>
         </div>
       </div>
 

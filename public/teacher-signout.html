@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ログオフ完了</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="sample-lp-page ui-v2">
+  <main class="lpv2-shell">
+    <section class="lpv2-card">
+      <h1 class="lpv2-title">ログオフ完了</h1>
+      <p class="lpv2-subtitle">ご利用ありがとうございました。必要があれば、下記にコメントを残してください。</p>
+
+      <section class="lpv2-guide lpv2-owner">
+        <p id="signoutStatus" class="lpv2-help">ログオフしました。</p>
+        <div class="lpv2-owner-form">
+          <label for="bugReportInput" class="lpv2-label">1. V2での不具合報告</label>
+          <textarea id="bugReportInput" class="lpv2-input" rows="4" placeholder="気づいた不具合があれば入力してください。"></textarea>
+
+          <label for="v3RequestInput" class="lpv2-label">2. バージョン3への要望事項</label>
+          <textarea id="v3RequestInput" class="lpv2-input" rows="4" placeholder="V3で欲しい機能や改善点を入力してください。"></textarea>
+
+          <label for="otherCommentInput" class="lpv2-label">3. その他</label>
+          <textarea id="otherCommentInput" class="lpv2-input" rows="4" placeholder="その他の連絡事項があれば入力してください。"></textarea>
+
+          <div class="lpv2-owner-actions">
+            <button id="submitFeedbackBtn" class="lpv2-start-btn" type="button">送信する</button>
+            <a href="/" class="lpv2-admin-link">ホーム画面へ戻る</a>
+          </div>
+        </div>
+      </section>
+    </section>
+  </main>
+  <script src="/teacher-signout.js"></script>
+</body>
+</html>

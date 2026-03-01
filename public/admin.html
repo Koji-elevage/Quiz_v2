@@ -23,6 +23,17 @@
                     <option value="qwen">Qwen Plus / Wanx 2.1 ImageEdit</option>
                 </select>
                 <div id="authStatus" class="auth-status auth-status-top">認証方式を確認中...</div>
+                <div id="googleLoginMount" class="google-login-mount hidden"></div>
+                <div id="accountMenuWrap" class="account-menu-wrap hidden">
+                    <button type="button" id="accountMenuBtn" class="account-menu-btn" aria-haspopup="menu" aria-expanded="false">
+                        <img id="accountAvatar" class="account-avatar hidden" alt="Googleプロフィール画像" />
+                        <span id="accountEmail" class="account-email"></span>
+                    </button>
+                    <div id="accountMenuPanel" class="account-menu-panel hidden" role="menu">
+                        <a id="accountOwnerLink" class="account-menu-item hidden" href="/owner-admin" role="menuitem">管理者画面へ</a>
+                        <button type="button" id="accountLogoutBtn" class="account-menu-item" role="menuitem">ログオフ</button>
+                    </div>
+                </div>
                 <button type="button" class="secondary hidden" id="googleLoginBtn">Googleでログイン</button>
             </div>
         </section>

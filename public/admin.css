@@ -97,6 +97,79 @@ p {
     color: #b91c1c;
 }
 
+.account-menu-wrap {
+    position: relative;
+}
+
+.account-menu-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    max-width: 320px;
+    padding: 8px 12px;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #0f172a;
+    border-radius: 999px;
+}
+
+.account-menu-btn:hover {
+    opacity: 1;
+    background: #f8fafc;
+}
+
+.account-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+.account-email {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.account-menu-panel {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    min-width: 180px;
+    padding: 8px;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    background: #ffffff;
+    box-shadow: 0 16px 32px rgba(15, 23, 42, 0.12);
+    z-index: 20;
+    display: grid;
+    gap: 4px;
+}
+
+.account-menu-item {
+    display: block;
+    width: 100%;
+    padding: 10px 12px;
+    text-align: left;
+    border: none;
+    background: transparent;
+    color: #0f172a;
+    border-radius: 8px;
+    font-size: 14px;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.account-menu-item:hover {
+    background: #f8fafc;
+    opacity: 1;
+}
+
 .panel {
     background: var(--panel);
     border: 1px solid var(--line);

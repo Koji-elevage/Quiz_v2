@@ -3,6 +3,8 @@ const teacherEmailInput = document.getElementById('teacherEmailInput');
 const addTeacherBtn = document.getElementById('addTeacherBtn');
 const adminUsersList = document.getElementById('adminUsersList');
 const backToPreviousBtn = document.getElementById('backToPreviousBtn');
+const feedbackList = document.getElementById('feedbackList');
+const ownerLogoutBtn = document.getElementById('ownerLogoutBtn');
 
 const ADMIN_GOOGLE_TOKEN_KEY = 'adminGoogleIdToken';
 
@@ -22,6 +24,18 @@ function setToken(token) {
 
 function isAppSessionToken(token) {
   return String(token || '').startsWith('app.');
+}
+
+function logoutToFeedbackScreen() {
+  const currentStatus = String(ownerStatus?.textContent || '').trim();
+  const matchedEmail = currentStatus.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  if (matchedEmail?.[0]) {
+    sessionStorage.setItem('logoutFeedbackEmail', matchedEmail[0]);
+  } else {
+    sessionStorage.removeItem('logoutFeedbackEmail');
+  }
+  localStorage.removeItem(ADMIN_GOOGLE_TOKEN_KEY);
+  location.href = '/teacher-signout';
 }
 
 async function ensureSessionToken(token) {
@@ -107,9 +121,59 @@ function renderAdminUsers(items) {
   }
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function renderFeedbackItems(items) {
+  if (!feedbackList) return;
+  feedbackList.innerHTML = '';
+  if (!items.length) {
+    feedbackList.innerHTML = '<p class="lpv2-help">まだ投稿はありません。</p>';
+    return;
+  }
+
+  for (const item of items) {
+    const article = document.createElement('article');
+    article.className = 'lpv2-feedback-item';
+
+    const submittedBy = String(item.submitted_by || item.submittedBy || '匿名').trim() || '匿名';
+    const createdAt = String(item.created_at || item.createdAt || '').trim();
+    article.innerHTML = `
+      <div class="lpv2-feedback-meta">
+        <strong>${escapeHtml(submittedBy)}</strong>
+        <span>${escapeHtml(createdAt)}</span>
+      </div>
+      <div class="lpv2-feedback-section">
+        <div class="lpv2-feedback-label">V2での不具合報告</div>
+        <div class="lpv2-feedback-body">${escapeHtml(item.bug_report || item.bugReport || '（なし）')}</div>
+      </div>
+      <div class="lpv2-feedback-section">
+        <div class="lpv2-feedback-label">バージョン3への要望事項</div>
+        <div class="lpv2-feedback-body">${escapeHtml(item.v3_request || item.v3Request || '（なし）')}</div>
+      </div>
+      <div class="lpv2-feedback-section">
+        <div class="lpv2-feedback-label">その他</div>
+        <div class="lpv2-feedback-body">${escapeHtml(item.other_comment || item.otherComment || '（なし）')}</div>
+      </div>
+    `;
+    feedbackList.appendChild(article);
+  }
+}
+
 async function loadAdminUsers() {
   const data = await apiFetch('/api/admin-users', { cache: 'no-store' });
   renderAdminUsers(Array.isArray(data.items) ? data.items : []);
+}
+
+async function loadFeedback() {
+  const data = await apiFetch('/api/feedback', { cache: 'no-store' });
+  renderFeedbackItems(Array.isArray(data.items) ? data.items : []);
 }
 
 async function init() {
@@ -121,6 +185,7 @@ async function init() {
     }
     setOwnerStatus(`ログイン済み: ${session.email}`);
     await loadAdminUsers();
+    await loadFeedback();
   } catch (error) {
     setOwnerStatus(error.message, true);
   }
@@ -140,6 +205,7 @@ async function init() {
       });
       teacherEmailInput.value = '';
       await loadAdminUsers();
+      await loadFeedback();
       setOwnerStatus('教師を追加しました。');
     } catch (error) {
       setOwnerStatus(error.message, true);
@@ -156,6 +222,9 @@ async function init() {
         location.href = '/teacher-login';
       }
     });
+  }
+  if (ownerLogoutBtn) {
+    ownerLogoutBtn.addEventListener('click', logoutToFeedbackScreen);
   }
 }
 

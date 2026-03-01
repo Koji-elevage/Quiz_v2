@@ -206,6 +206,16 @@ async function initDb() {
         created_at VARCHAR(40) NOT NULL
       )
     `);
+    await mysqlPool.execute(`
+      CREATE TABLE IF NOT EXISTS user_feedback (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        submitted_by VARCHAR(255) NOT NULL,
+        bug_report LONGTEXT NOT NULL,
+        v3_request LONGTEXT NOT NULL,
+        other_comment LONGTEXT NOT NULL,
+        created_at VARCHAR(40) NOT NULL
+      )
+    `);
     return;
   }
 
@@ -244,6 +254,15 @@ async function initDb() {
       path TEXT PRIMARY KEY,
       mime_type TEXT NOT NULL,
       data BLOB NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS user_feedback (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      submitted_by TEXT NOT NULL,
+      bug_report TEXT NOT NULL,
+      v3_request TEXT NOT NULL,
+      other_comment TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
   `);
@@ -367,6 +386,7 @@ function createAdminSessionToken(adminUser) {
   const payload = {
     email: normalizeEmail(adminUser?.email || ''),
     name: String(adminUser?.name || ''),
+    picture: String(adminUser?.picture || ''),
     role: String(adminUser?.role || 'user'),
     provider: 'google',
     iat: now,
@@ -410,6 +430,7 @@ function verifyAdminSessionToken(token) {
     adminUser: {
       email,
       name: String(payload?.name || ''),
+      picture: String(payload?.picture || ''),
       provider: 'google',
       role: String(payload?.role || 'user')
     }
@@ -428,7 +449,7 @@ async function isDynamicAdminEmail(email) {
   return Boolean(row?.email);
 }
 
-async function resolveGoogleAdminUser(email, name = '') {
+async function resolveGoogleAdminUser(email, name = '', picture = '') {
   const normalizedEmail = normalizeEmail(email);
   if (!normalizedEmail) {
     return { ok: false, status: 401, message: 'Googleアカウント情報を確認できませんでした。' };
@@ -446,6 +467,7 @@ async function resolveGoogleAdminUser(email, name = '') {
     adminUser: {
       email: normalizedEmail,
       name: String(name || ''),
+      picture: String(picture || ''),
       provider: 'google',
       role: owner ? 'owner' : 'user'
     }
@@ -489,7 +511,7 @@ async function verifyGoogleAdminToken(req) {
       }
     }
 
-    const resolved = await resolveGoogleAdminUser(email, String(payload.name || ''));
+    const resolved = await resolveGoogleAdminUser(email, String(payload.name || ''), String(payload.picture || ''));
     if (!resolved.ok) {
       return { ok: false, status: resolved.status, message: resolved.message };
     }
@@ -635,7 +657,7 @@ app.post('/api/auth/google-exchange', async (req, res) => {
         return res.status(403).json({ message: 'このGoogleアカウントには管理権限がありません。' });
       }
     }
-    const resolved = await resolveGoogleAdminUser(email, String(payload.name || ''));
+    const resolved = await resolveGoogleAdminUser(email, String(payload.name || ''), String(payload.picture || ''));
     if (!resolved.ok) {
       return res.status(resolved.status).json({ message: resolved.message });
     }
@@ -657,6 +679,7 @@ app.get('/api/auth/session', requireAdminAuth, async (req, res) => {
       mode: 'google',
       email: req.adminUser?.email || '',
       name: req.adminUser?.name || '',
+      picture: req.adminUser?.picture || '',
       role: req.adminUser?.role || 'teacher'
     });
   }
@@ -770,6 +793,42 @@ app.delete('/api/admin-users/:email', requireOwnerAuth, async (req, res) => {
   }
 });
 
+app.post('/api/feedback', async (req, res) => {
+  try {
+    const submittedBy = String(req.body?.submittedBy || '匿名').trim() || '匿名';
+    const bugReport = String(req.body?.bugReport || '').trim();
+    const v3Request = String(req.body?.v3Request || '').trim();
+    const otherComment = String(req.body?.otherComment || '').trim();
+
+    if (!bugReport && !v3Request && !otherComment) {
+      return res.status(400).json({ message: 'いずれか1つは入力してください。' });
+    }
+
+    const createdAt = new Date().toISOString();
+    await dbRun(
+      `INSERT INTO user_feedback (submitted_by, bug_report, v3_request, other_comment, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [submittedBy, bugReport, v3Request, otherComment, createdAt]
+    );
+    return res.status(201).json({ success: true });
+  } catch (error) {
+    console.error('Failed to save user feedback:', error);
+    return res.status(500).json({ message: 'コメントの保存に失敗しました。' });
+  }
+});
+
+app.get('/api/feedback', requireOwnerAuth, async (_req, res) => {
+  try {
+    const rows = await dbAll(
+      'SELECT id, submitted_by, bug_report, v3_request, other_comment, created_at FROM user_feedback ORDER BY created_at DESC'
+    );
+    return res.status(200).json({ items: rows });
+  } catch (error) {
+    console.error('Failed to fetch user feedback:', error);
+    return res.status(500).json({ message: '要望一覧の取得に失敗しました。' });
+  }
+});
+
 app.get('/', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'lp.html')); // Fallback LP if we rename it, but let's just make it redirect to admin for now, or LP. Let's just do LP.
 });
@@ -784,6 +843,10 @@ app.get('/teacher-manual-v2', (_req, res) => {
 
 app.get('/owner-admin', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'owner-admin.html'));
+});
+
+app.get('/teacher-signout', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'teacher-signout.html'));
 });
 
 app.get('/admin', (_req, res) => {

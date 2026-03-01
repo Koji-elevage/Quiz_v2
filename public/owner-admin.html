@@ -13,21 +13,33 @@
   <main class="lpv2-shell">
     <section class="lpv2-card">
       <h1 class="lpv2-title">管理者画面</h1>
-      <p class="lpv2-subtitle">教師アカウントの追加・削除を行います。</p>
+      <p class="lpv2-subtitle">左で教師アカウント管理、右でユーザー要望を確認します。</p>
 
       <section class="lpv2-guide lpv2-owner">
         <p id="ownerStatus" class="lpv2-help">認証確認中...</p>
-        <div class="lpv2-owner-form">
-          <label for="teacherEmailInput" class="lpv2-label">追加する教師メール</label>
-          <input id="teacherEmailInput" class="lpv2-input" type="email" placeholder="teacher@example.com" />
-          <button id="addTeacherBtn" class="lpv2-start-btn" type="button">教師を追加</button>
-        </div>
-        <div class="lpv2-owner-list-wrap">
-          <p class="lpv2-guide-title">権限一覧（管理者 / 教師）</p>
-          <ul id="adminUsersList" class="lpv2-admin-users"></ul>
+        <div class="lpv2-owner-split">
+          <section class="lpv2-owner-pane">
+            <p class="lpv2-guide-title">教師アカウント管理</p>
+            <div class="lpv2-owner-form">
+              <label for="teacherEmailInput" class="lpv2-label">追加する教師メール</label>
+              <input id="teacherEmailInput" class="lpv2-input" type="email" placeholder="teacher@example.com" />
+              <button id="addTeacherBtn" class="lpv2-start-btn" type="button">教師を追加</button>
+            </div>
+            <div class="lpv2-owner-list-wrap">
+              <p class="lpv2-guide-title">権限一覧（管理者 / 教師）</p>
+              <ul id="adminUsersList" class="lpv2-admin-users"></ul>
+            </div>
+          </section>
+          <section class="lpv2-owner-pane">
+            <p class="lpv2-guide-title">ユーザーの要望表示</p>
+            <div id="feedbackList" class="lpv2-feedback-list">
+              <p class="lpv2-help">まだ投稿はありません。</p>
+            </div>
+          </section>
         </div>
         <div class="lpv2-owner-actions">
           <a href="/admin" class="lpv2-start-btn">教師画面へ移動</a>
+          <button type="button" id="ownerLogoutBtn" class="lpv2-admin-link">ログオフ</button>
           <button type="button" id="backToPreviousBtn" class="lpv2-admin-link">前画面に戻る</button>
         </div>
       </section>

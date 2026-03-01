@@ -1353,10 +1353,31 @@ body {
     margin-top: 14px;
 }
 
+.lpv2-owner-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 14px;
+    align-items: start;
+}
+
+.lpv2-owner-pane {
+    display: grid;
+    gap: 10px;
+    min-width: 0;
+}
+
 .lpv2-owner-actions {
     display: flex;
     gap: 8px;
     margin-bottom: 8px;
+    margin-top: 14px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.google-login-mount {
+    min-width: 220px;
+    min-height: 40px;
 }
 
 .lpv2-owner-form {
@@ -1405,6 +1426,58 @@ body {
     padding: 6px 10px;
     font-weight: 700;
     cursor: pointer;
+}
+
+.lpv2-feedback-list {
+    display: grid;
+    gap: 10px;
+    max-height: 620px;
+    overflow-y: auto;
+}
+
+.lpv2-feedback-item {
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    padding: 12px;
+    display: grid;
+    gap: 10px;
+}
+
+.lpv2-feedback-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    align-items: baseline;
+}
+
+.lpv2-feedback-meta span {
+    font-size: 12px;
+    color: #64748b;
+}
+
+.lpv2-feedback-section {
+    display: grid;
+    gap: 4px;
+}
+
+.lpv2-feedback-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: #334155;
+}
+
+.lpv2-feedback-body {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 14px;
+    color: #1f2937;
+}
+
+@media (max-width: 960px) {
+    .lpv2-owner-split {
+        grid-template-columns: 1fr;
+    }
 }
 
 .modal-overlay {

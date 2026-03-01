@@ -20,6 +20,14 @@ const reloadPromptConfigBtn = document.getElementById('reloadPromptConfigBtn');
 const closePromptConfigEditorBtn = document.getElementById('closePromptConfigEditorBtn');
 const copyQrBtn = document.getElementById('copyQrBtn');
 const authStatus = document.getElementById('authStatus');
+const googleLoginMount = document.getElementById('googleLoginMount');
+const accountMenuWrap = document.getElementById('accountMenuWrap');
+const accountMenuBtn = document.getElementById('accountMenuBtn');
+const accountMenuPanel = document.getElementById('accountMenuPanel');
+const accountAvatar = document.getElementById('accountAvatar');
+const accountEmail = document.getElementById('accountEmail');
+const accountOwnerLink = document.getElementById('accountOwnerLink');
+const accountLogoutBtn = document.getElementById('accountLogoutBtn');
 const googleLoginBtn = document.getElementById('googleLoginBtn');
 const ADMIN_TOKEN_KEY = 'adminToken';
 const ADMIN_GOOGLE_TOKEN_KEY = 'adminGoogleIdToken';
@@ -133,16 +141,90 @@ function setAuthStatus(message, type = 'notice') {
     authStatus.className = `auth-status auth-status-top ${type}`;
 }
 
+function clearAdminAuthState() {
+    localStorage.removeItem(ADMIN_GOOGLE_TOKEN_KEY);
+    state.auth.loggedIn = false;
+    state.auth.email = '';
+    state.auth.picture = '';
+    state.auth.role = '';
+}
+
+function storeLogoutFeedbackEmail() {
+    const email = String(state.auth.email || '').trim();
+    if (!email) {
+        sessionStorage.removeItem('logoutFeedbackEmail');
+        return;
+    }
+    sessionStorage.setItem('logoutFeedbackEmail', email);
+}
+
+function moveToLogoutScreen() {
+    storeLogoutFeedbackEmail();
+    clearAdminAuthState();
+    window.location.href = '/teacher-signout';
+}
+
+function logoutGoogleSession() {
+    moveToLogoutScreen();
+}
+
+function closeAccountMenu() {
+    if (accountMenuPanel) accountMenuPanel.classList.add('hidden');
+    if (accountMenuBtn) accountMenuBtn.setAttribute('aria-expanded', 'false');
+}
+
+function openAccountMenu() {
+    if (accountMenuPanel) accountMenuPanel.classList.remove('hidden');
+    if (accountMenuBtn) accountMenuBtn.setAttribute('aria-expanded', 'true');
+}
+
+function renderAccountChip() {
+    if (!accountMenuWrap) return;
+    const loggedIn = Boolean(state.auth.loggedIn);
+    accountMenuWrap.classList.toggle('hidden', !loggedIn);
+    if (!loggedIn) {
+        closeAccountMenu();
+        return;
+    }
+    if (accountEmail) {
+        accountEmail.textContent = String(state.auth.email || '').trim() || 'Googleログイン済み';
+        accountEmail.title = String(state.auth.email || '').trim();
+    }
+    const avatarUrl = String(state.auth.picture || '').trim();
+    if (accountAvatar) {
+        if (avatarUrl) {
+            accountAvatar.src = avatarUrl;
+            accountAvatar.classList.remove('hidden');
+        } else {
+            accountAvatar.removeAttribute('src');
+            accountAvatar.classList.add('hidden');
+        }
+    }
+    if (accountOwnerLink) {
+        accountOwnerLink.classList.toggle('hidden', state.auth.role !== 'owner');
+    }
+}
+
 function refreshAuthUi() {
     if (!googleLoginBtn) return;
     if (state.auth.mode !== 'google') {
         googleLoginBtn.classList.add('hidden');
+        if (googleLoginMount) googleLoginMount.classList.add('hidden');
+        if (accountMenuWrap) accountMenuWrap.classList.add('hidden');
+        if (authStatus) authStatus.classList.remove('hidden');
         return;
     }
     if (state.auth.loggedIn) {
+        if (googleLoginMount) googleLoginMount.classList.add('hidden');
+        if (authStatus) authStatus.classList.add('hidden');
         googleLoginBtn.classList.add('hidden');
+        renderAccountChip();
     } else {
-        googleLoginBtn.classList.remove('hidden');
+        if (authStatus) authStatus.classList.remove('hidden');
+        googleLoginBtn.classList.add('hidden');
+        if (googleLoginMount) googleLoginMount.classList.remove('hidden');
+        if (accountMenuWrap) accountMenuWrap.classList.add('hidden');
+        closeAccountMenu();
     }
 }
 
@@ -167,8 +249,28 @@ async function exchangeGoogleTokenForSession(idToken) {
     }
     return {
         appToken,
-        email: String(data?.user?.email || '').trim()
+        email: String(data?.user?.email || '').trim(),
+        picture: String(data?.user?.picture || '').trim(),
+        role: String(data?.user?.role || '').trim()
     };
+}
+
+async function syncAdminSessionState() {
+    if (state.auth.mode !== 'google' || !hasGoogleSession()) {
+        return;
+    }
+    const response = await adminFetch('/api/auth/session', { cache: 'no-store' });
+    const session = await parseApiResponse(response);
+    state.auth.loggedIn = true;
+    state.auth.email = String(session.email || '').trim();
+    state.auth.picture = String(session.picture || '').trim();
+    state.auth.role = String(session.role || '').trim();
+    if (state.auth.email) {
+        setAuthStatus(`Googleログイン済み\n${state.auth.email}`, 'success');
+    } else {
+        setAuthStatus('Googleログイン済み', 'success');
+    }
+    refreshAuthUi();
 }
 
 async function setGoogleTokenFromCredential(credential) {
@@ -178,7 +280,14 @@ async function setGoogleTokenFromCredential(credential) {
     localStorage.setItem(ADMIN_GOOGLE_TOKEN_KEY, exchanged.appToken);
     const email = exchanged.email || (decodeJwtPayload(idToken)?.email || '');
     state.auth.loggedIn = true;
-    setAuthStatus(`Googleログイン済み\n${email}`, 'success');
+    state.auth.email = String(email || '').trim();
+    state.auth.picture = String(exchanged.picture || '').trim();
+    state.auth.role = String(exchanged.role || '').trim();
+    if (state.auth.email) {
+        setAuthStatus(`Googleログイン済み\n${state.auth.email}`, 'success');
+    } else {
+        setAuthStatus('Googleログイン済み', 'success');
+    }
     refreshAuthUi();
     await loadProtectedData();
     return true;
@@ -195,6 +304,42 @@ async function waitForGoogleLibrary(maxWaitMs = 6000) {
     return false;
 }
 
+function initializeGoogleLoginButton() {
+    if (!googleLoginMount || !state.auth.googleClientId) {
+        return;
+    }
+    if (!(window.google && window.google.accounts && window.google.accounts.id)) {
+        setAuthStatus('GoogleログインAPIを読み込めませんでした。再読み込みしてください。', 'error');
+        return;
+    }
+    googleLoginMount.innerHTML = '';
+    window.google.accounts.id.initialize({
+        client_id: state.auth.googleClientId,
+        callback: async (response) => {
+            try {
+                const ok = await setGoogleTokenFromCredential(response?.credential);
+                if (!ok) {
+                    clearAdminAuthState();
+                    refreshAuthUi();
+                    setAuthStatus('Googleログインに失敗しました。', 'error');
+                }
+            } catch (error) {
+                clearAdminAuthState();
+                refreshAuthUi();
+                setAuthStatus(error.message || 'Googleログインに失敗しました。', 'error');
+            }
+        }
+    });
+    window.google.accounts.id.renderButton(googleLoginMount, {
+        theme: 'outline',
+        size: 'large',
+        shape: 'pill',
+        text: 'signin_with',
+        locale: 'ja',
+        width: 220
+    });
+}
+
 async function openGoogleLoginPrompt() {
     if (!state.auth.googleClientId) {
         setAuthStatus('Google認証の設定が未完了です。', 'error');
@@ -205,45 +350,8 @@ async function openGoogleLoginPrompt() {
         setAuthStatus('GoogleログインAPIを読み込めませんでした。再読み込みしてください。', 'error');
         return;
     }
-    setAuthStatus('Googleログイン画面を開いています...', 'notice');
-    let loginSucceeded = false;
-    window.google.accounts.id.initialize({
-        client_id: state.auth.googleClientId,
-        callback: async (response) => {
-            try {
-                const ok = await setGoogleTokenFromCredential(response?.credential);
-                if (!ok) {
-                    state.auth.loggedIn = false;
-                    refreshAuthUi();
-                    setAuthStatus('Googleログインに失敗しました。', 'error');
-                    return;
-                }
-                loginSucceeded = true;
-            } catch (error) {
-                state.auth.loggedIn = false;
-                refreshAuthUi();
-                setAuthStatus(error.message || 'Googleログインに失敗しました。', 'error');
-            }
-        }
-    });
-    window.google.accounts.id.prompt((notification) => {
-        if (!notification) return;
-        if (notification.isNotDisplayed && notification.isNotDisplayed()) {
-            const reason = notification.getNotDisplayedReason ? notification.getNotDisplayedReason() : 'unknown';
-            setAuthStatus(`Googleログイン画面を表示できませんでした: ${reason}`, 'error');
-            return;
-        }
-        if (notification.isSkippedMoment && notification.isSkippedMoment()) {
-            const reason = notification.getSkippedReason ? notification.getSkippedReason() : 'unknown';
-            setAuthStatus(`Googleログインがスキップされました: ${reason}`, 'error');
-            return;
-        }
-        if (notification.isDismissedMoment && notification.isDismissedMoment()) {
-            if (!loginSucceeded) {
-                setAuthStatus('Googleログインがキャンセルされました。', 'notice');
-            }
-        }
-    });
+    setAuthStatus('Googleボタンからログインしてください。', 'notice');
+    initializeGoogleLoginButton();
 }
 
 async function loadAuthConfig() {
@@ -256,13 +364,23 @@ async function loadAuthConfig() {
     state.auth.googleClientId = String(config.googleClientId || '').trim();
 
     if (state.auth.mode === 'google') {
-        if (googleLoginBtn) googleLoginBtn.onclick = openGoogleLoginPrompt;
         if (!state.auth.googleClientId) {
             state.auth.loggedIn = false;
+            state.auth.email = '';
+            state.auth.picture = '';
+            state.auth.role = '';
             refreshAuthUi();
             setAuthStatus('Google認証の設定が未完了です（ADMIN_GOOGLE_CLIENT_ID）。', 'error');
             return;
         }
+        const loaded = await waitForGoogleLibrary(6000);
+        if (!loaded) {
+            state.auth.loggedIn = false;
+            setAuthStatus('GoogleログインAPIを読み込めませんでした。再読み込みしてください。', 'error');
+            refreshAuthUi();
+            return;
+        }
+        initializeGoogleLoginButton();
         const existing = getGoogleIdToken();
         if (existing) {
             try {
@@ -270,18 +388,27 @@ async function loadAuthConfig() {
                     const exchanged = await exchangeGoogleTokenForSession(existing);
                     localStorage.setItem(ADMIN_GOOGLE_TOKEN_KEY, exchanged.appToken);
                     state.auth.loggedIn = true;
-                    setAuthStatus(`Googleログイン済み\n${exchanged.email || ''}`, 'success');
+                    state.auth.email = String(exchanged.email || '').trim();
+                    state.auth.picture = '';
+                    state.auth.role = '';
+                    if (state.auth.email) {
+                        setAuthStatus(`Googleログイン済み\n${state.auth.email}`, 'success');
+                    } else {
+                        setAuthStatus('Googleログイン済み', 'success');
+                    }
                 } else {
                     state.auth.loggedIn = true;
+                    state.auth.email = '';
+                    state.auth.picture = '';
+                    state.auth.role = '';
                     setAuthStatus('Googleログイン済み', 'success');
                 }
             } catch (_error) {
-                localStorage.removeItem(ADMIN_GOOGLE_TOKEN_KEY);
-                state.auth.loggedIn = false;
+                clearAdminAuthState();
                 setAuthStatus('Googleでログインしてください。', 'notice');
             }
         } else {
-            state.auth.loggedIn = false;
+            clearAdminAuthState();
             setAuthStatus('Googleでログインしてください。', 'notice');
             setMessage('Googleログイン後にクイズ一覧を読み込みます。', 'notice');
             setPromptConfigStatusMessage('Googleログイン後に読み込みます。', 'notice');
@@ -313,8 +440,7 @@ async function adminFetch(url, options = {}, allowRetry = true) {
     const response = await fetch(url, { ...options, headers });
     if (response.status === 401 && allowRetry) {
         if (state.auth.mode === 'google') {
-            localStorage.removeItem(ADMIN_GOOGLE_TOKEN_KEY);
-            state.auth.loggedIn = false;
+            clearAdminAuthState();
             refreshAuthUi();
             setAuthStatus('セッションが切れました。Googleで再ログインしてください。', 'error');
             throw new Error('Googleセッションの有効期限が切れました。右上の「Googleでログイン」を押してください。');
@@ -395,9 +521,36 @@ document.addEventListener('DOMContentLoaded', () => {
             if (e.target === overlay) closeImageModal();
         });
     }
+    if (accountMenuBtn) {
+        accountMenuBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const hidden = accountMenuPanel?.classList.contains('hidden');
+            if (hidden) {
+                openAccountMenu();
+            } else {
+                closeAccountMenu();
+            }
+        });
+    }
+    if (accountLogoutBtn) {
+        accountLogoutBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            closeAccountMenu();
+            logoutGoogleSession();
+        });
+    }
+    document.addEventListener('click', (e) => {
+        if (!accountMenuWrap) return;
+        if (!accountMenuWrap.contains(e.target)) {
+            closeAccountMenu();
+        }
+    });
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && overlay && overlay.classList.contains('active')) {
             closeImageModal();
+        }
+        if (e.key === 'Escape') {
+            closeAccountMenu();
         }
     });
 
@@ -524,7 +677,10 @@ const state = {
     auth: {
         mode: 'token',
         googleClientId: '',
-        loggedIn: false
+        loggedIn: false,
+        email: '',
+        picture: '',
+        role: ''
     },
     promptConfigs: {
         question: null,
@@ -1734,6 +1890,9 @@ function hasGoogleSession() {
 async function loadProtectedData() {
     if (state.auth.mode === 'google' && !hasGoogleSession()) {
         return;
+    }
+    if (state.auth.mode === 'google') {
+        await syncAdminSessionState();
     }
     await loadQuizList();
     await loadPromptConfigs();

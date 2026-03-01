@@ -1,5 +1,8 @@
 const loginBtn = document.getElementById('teacherGoogleLoginBtn');
+const loginMount = document.getElementById('teacherGoogleLoginMount');
 const statusEl = document.getElementById('teacherLoginStatus');
+const titleEl = document.getElementById('teacherLoginTitle');
+const subtitleEl = document.getElementById('teacherLoginSubtitle');
 const ownerChoiceSection = document.getElementById('ownerChoiceSection');
 const loginPanel = document.getElementById('loginPanel');
 const openTeacherManualBtn = document.getElementById('openTeacherManualBtn');
@@ -13,6 +16,11 @@ const ADMIN_GOOGLE_TOKEN_KEY = 'adminGoogleIdToken';
 const state = {
   googleClientId: ''
 };
+
+function setPageCopy(title, subtitle) {
+  if (titleEl) titleEl.textContent = title;
+  if (subtitleEl) subtitleEl.textContent = subtitle;
+}
 
 function setStatus(message, isError = false) {
   if (!statusEl) return;
@@ -103,27 +111,37 @@ async function handleSuccessfulLogin(credential) {
   if (session.role === 'owner') {
     if (loginPanel) loginPanel.classList.add('hidden');
     ownerChoiceSection.classList.remove('hidden');
+    setPageCopy('教師・管理者メニュー', 'ログイン済みです。進む画面を選択してください。');
     setStatus(`ログイン済み: ${session.email}`);
     return;
   }
 
+  setPageCopy('教師・管理者ログイン', '教師画面へ移動しています。');
   setStatus('ログイン成功。教師画面へ移動します。');
   location.href = '/admin';
 }
 
 async function startGoogleLogin() {
-  if (!state.googleClientId) {
-    setStatus('Google認証設定が未完了です。', true);
-    return;
+    if (!state.googleClientId) {
+      setStatus('Google認証設定が未完了です。', true);
+      return;
   }
   const loaded = await waitForGoogleLibrary(6000);
   if (!loaded) {
     setStatus('GoogleログインAPIを読み込めませんでした。', true);
     return;
   }
+  initializeExplicitGoogleButton();
+  setStatus('Googleボタンからログインしてください。');
+}
 
-  setStatus('Googleログイン画面を開いています...');
-  let loginSucceeded = false;
+function initializeExplicitGoogleButton() {
+  if (!loginMount || !state.googleClientId) return;
+  if (!(window.google && window.google.accounts && window.google.accounts.id)) {
+    setStatus('GoogleログインAPIを読み込めませんでした。', true);
+    return;
+  }
+  loginMount.innerHTML = '';
   window.google.accounts.id.initialize({
     client_id: state.googleClientId,
     callback: async (response) => {
@@ -132,7 +150,6 @@ async function startGoogleLogin() {
         setStatus('Googleログインに失敗しました。', true);
         return;
       }
-      loginSucceeded = true;
       try {
         await handleSuccessfulLogin(credential);
       } catch (error) {
@@ -140,26 +157,18 @@ async function startGoogleLogin() {
       }
     }
   });
-
-  window.google.accounts.id.prompt((notification) => {
-    if (!notification) return;
-    if (notification.isNotDisplayed && notification.isNotDisplayed()) {
-      const reason = notification.getNotDisplayedReason ? notification.getNotDisplayedReason() : 'unknown';
-      setStatus(`ログイン画面を表示できませんでした: ${reason}`, true);
-      return;
-    }
-    if (notification.isSkippedMoment && notification.isSkippedMoment()) {
-      const reason = notification.getSkippedReason ? notification.getSkippedReason() : 'unknown';
-      setStatus(`ログインがスキップされました: ${reason}`, true);
-      return;
-    }
-    if (notification.isDismissedMoment && notification.isDismissedMoment() && !loginSucceeded) {
-      setStatus('Googleログインがキャンセルされました。', true);
-    }
+  window.google.accounts.id.renderButton(loginMount, {
+    theme: 'outline',
+    size: 'large',
+    shape: 'pill',
+    text: 'signin_with',
+    locale: 'ja',
+    width: 220
   });
 }
 
 async function init() {
+  setPageCopy('教師・管理者ログイン', 'Googleアカウントで認証すると、教師画面または管理者画面へ進めます。');
   try {
     const res = await fetch('/api/auth/config', { cache: 'no-store' });
     const config = await res.json();
@@ -180,8 +189,18 @@ async function init() {
     return;
   }
 
-  if (loginBtn) {
-    loginBtn.addEventListener('click', startGoogleLogin);
+  const loaded = await waitForGoogleLibrary(6000);
+  if (!loaded) {
+    setStatus('GoogleログインAPIを読み込めませんでした。', true);
+    if (loginBtn) {
+      loginBtn.classList.remove('hidden');
+      loginBtn.disabled = true;
+    }
+  } else {
+    initializeExplicitGoogleButton();
+    if (loginBtn) {
+      loginBtn.addEventListener('click', startGoogleLogin);
+    }
   }
   if (openTeacherManualBtn) {
     openTeacherManualBtn.addEventListener('click', () => {
@@ -209,6 +228,7 @@ async function init() {
     await handleSuccessfulLogin(existingToken);
   } catch (_error) {
     localStorage.removeItem(ADMIN_GOOGLE_TOKEN_KEY);
+    setPageCopy('教師・管理者ログイン', 'Googleアカウントで認証すると、教師画面または管理者画面へ進めます。');
     setStatus('ログイン待ち');
   }
 }
