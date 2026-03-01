@@ -108,6 +108,7 @@ npm run dev:pm2:stop
 - Teacher/User・Admin/Owner ログイン導線: `http://localhost:3000/teacher-login`
   - Google認証後、Teacher/Userは`/admin`へ移動
   - Admin/Ownerは`/admin`または`/owner-admin`を選択
+  - ログオフ後は`/teacher-signout`でコメント（V2不具合 / V3要望 / その他）を送信できます
 
 ## AIシステムプロンプト編集（YAML）
 
@@ -118,9 +119,20 @@ npm run dev:pm2:stop
 
 ## LPからのユーザー管理導線
 
-- Teacher/User・Admin/Owner 入口はトップの「Teacher / User・Admin / Ownerはこちら」→`/teacher-login`です。
+- Teacher/User・Admin/Owner 入口はトップの「教師・管理者はこちら」→`/teacher-login`です。
 - Admin/Owner（`ADMIN_OWNER_EMAILS`）は`/owner-admin`でTeacher/Userメールを追加/削除できます。
+- `/owner-admin` は左右2ペインで、右側にログオフ時コメント一覧を表示します。
 - 追加されたTeacher/Userは `/admin` にログイン可能になります。
+
+## 設問生成AIの日本語レベル
+
+- 設問生成AIは、以下の項目を N2〜N3 レベルの平易で自然な日本語で作る前提です。
+  - 設問
+  - 穴埋め文
+  - 解説
+  - 不正解1場面 / 不正解1例文
+  - 不正解2場面 / 不正解2例文
+- この制約は、コード側の強制ルールと保存済みYAMLの両方で管理しています。
 
 ## Student識別の現状（V2）
 

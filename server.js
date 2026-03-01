@@ -70,6 +70,8 @@ const DEFAULT_PROMPT_YAML = {
     '  - 既入力の不正解語は再提案しない。正解語「{{word}}」とも重複しないこと。',
     '  - choices は重複禁止。sentence / explanation と意味的に整合すること。',
     '  - others は choices と同順で対応させ、usage/example はその語の意味に合う内容にすること。',
+    '  - prompt / sentence / explanation / others.usage / others.example には、N2〜N3レベルの平易で自然な日本語を使うこと。',
+    '  - 難しすぎる漢語・硬い書き言葉・抽象的すぎる言い回しは避け、授業でそのまま読めるやさしい文にすること。',
     '',
     '  【出力JSONフォーマット】',
     '  {',
@@ -1199,6 +1201,8 @@ async function buildQuestionSystemPrompt({ word, context }) {
 - choices には「未入力の不正解枠を埋める語だけ」を返す。既入力の不正解語を再提案しない。
 - choices の各語は、正解語と重複禁止・choices内で重複禁止。
 - others は choices と同じ順序で対応させる。各要素は usage/example をその語の意味に整合させる。
+- prompt / sentence / explanation / 不正解1場面 / 不正解1例文 / 不正解2場面 / 不正解2例文 は、N2〜N3レベルの平易で自然な日本語にする。
+- 難しすぎる語彙、硬い書き言葉、抽象的すぎる説明は避け、学習者が授業中にすぐ理解できる表現を優先する。
 - 出力形式はJSONのみ。`;
 }
 
