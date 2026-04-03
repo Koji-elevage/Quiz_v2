@@ -149,6 +149,7 @@ async function initDb() {
     const password = String(process.env.MYSQL_PASSWORD || '').trim();
     const host = String(process.env.MYSQL_HOST || '').trim();
     const port = Number(process.env.MYSQL_PORT || 3306);
+    const mysqlSslEnv = String(process.env.MYSQL_SSL || '').trim().toLowerCase();
 
     const mysqlConfig = {
       user,
@@ -165,6 +166,17 @@ async function initDb() {
       mysqlConfig.host = host || '127.0.0.1';
       mysqlConfig.port = port;
     }
+
+    // Azure Database for MySQL often requires TLS. Enable it automatically for Azure hostnames,
+    // or explicitly with MYSQL_SSL=1/true.
+    const enableSsl =
+      mysqlSslEnv === '1' ||
+      mysqlSslEnv === 'true' ||
+      (!!mysqlConfig.host && String(mysqlConfig.host).endsWith('.mysql.database.azure.com'));
+    if (enableSsl) {
+      mysqlConfig.ssl = { rejectUnauthorized: true };
+    }
+
     mysqlPool = mysql.createPool(mysqlConfig);
     await mysqlPool.execute(`
       CREATE TABLE IF NOT EXISTS quizzes (
